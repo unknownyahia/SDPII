@@ -1,0 +1,468 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function currentUserDoc() {
+      return userDoc(request.auth.uid);
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && currentUserDoc().data.role == 'admin';
+    }
+
+    function isSelfOrAdmin(userId) {
+      return isSelf(userId) || isAdmin();
+    }
+
+    function userHasOrganizationRole(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId)) &&
+        userDoc(userId).data.role == 'organization';
+    }
+
+    function subscriptionDoc(userId) {
+      return get(
+        /databases/$(database)/documents/users/$(userId)/subscriptions/current
+      );
+    }
+
+    function hasEligibleEventPlan(userId) {
+      return exists(
+          /databases/$(database)/documents/users/$(userId)/subscriptions/current
+        ) &&
+        (
+          subscriptionDoc(userId).data.planLevel == 'organization_basic' ||
+          subscriptionDoc(userId).data.planLevel == 'organization_premium'
+        ) &&
+        (
+          subscriptionDoc(userId).data.status == 'active' ||
+          subscriptionDoc(userId).data.status == 'trial'
+        );
+    }
+
+    function isValidCategory(category) {
+      return category == 'fishing' ||
+        category == 'event' ||
+        category == 'sighting' ||
+        category == 'weather';
+    }
+
+    function isValidReportReason(reason) {
+      return reason == 'spam' ||
+        reason == 'misleading' ||
+        reason == 'offensive' ||
+        reason == 'unsafe' ||
+        reason == 'other';
+    }
+
+    function isValidReportStatus(status) {
+      return status == 'open' ||
+        status == 'reviewed' ||
+        status == 'dismissed' ||
+        status == 'action_taken';
+    }
+
+    function isValidPlanLevel(level) {
+      return level == 'free' ||
+        level == 'organization_basic' ||
+        level == 'organization_premium';
+    }
+
+    function isValidPlanStatus(status) {
+      return status == 'active' ||
+        status == 'inactive' ||
+        status == 'trial';
+    }
+
+    function isValidNotificationType(type) {
+      return type == 'comment_on_post' || type == 'like_on_post';
+    }
+
+    function isValidEventStatus(status) {
+      return status == 'active' ||
+        status == 'hidden' ||
+        status == 'cancelled';
+    }
+
+    function postDoc(postId) {
+      return get(/databases/$(database)/documents/posts/$(postId));
+    }
+
+    function postExists(postId) {
+      return exists(/databases/$(database)/documents/posts/$(postId));
+    }
+
+    function commentExists(postId, commentId) {
+      return exists(
+        /databases/$(database)/documents/posts/$(postId)/comments/$(commentId)
+      );
+    }
+
+    function reactionExists(postId, userId) {
+      return exists(
+        /databases/$(database)/documents/posts/$(postId)/reactions/$(userId)
+      );
+    }
+
+    function isOwnerControlledPostUpdate() {
+      return request.resource.data.userId == resource.data.userId &&
+        request.resource.data.lat == resource.data.lat &&
+        request.resource.data.lng == resource.data.lng &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'text',
+          'category',
+          'locationName',
+          'updatedAt'
+        ]) &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 280 &&
+        (request.resource.data.category == null ||
+          isValidCategory(request.resource.data.category));
+    }
+
+    function isAdminModerationPostUpdate() {
+      return request.resource.data.userId == resource.data.userId &&
+        request.resource.data.lat == resource.data.lat &&
+        request.resource.data.lng == resource.data.lng &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isHidden',
+          'moderationStatus'
+        ]) &&
+        request.resource.data.isHidden == true &&
+        request.resource.data.moderationStatus == 'hidden';
+    }
+
+    function isOwnerControlledCommentUpdate() {
+      return request.resource.data.userId == resource.data.userId &&
+        request.resource.data.authorLabel == resource.data.authorLabel &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'text',
+          'updatedAt'
+        ]) &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 500;
+    }
+
+    function isAdminModerationCommentUpdate() {
+      return request.resource.data.userId == resource.data.userId &&
+        request.resource.data.authorLabel == resource.data.authorLabel &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isHidden',
+          'moderationStatus'
+        ]) &&
+        request.resource.data.isHidden == true &&
+        request.resource.data.moderationStatus == 'hidden';
+    }
+
+    match /users/{userId} {
+      allow read: if isSelfOrAdmin(userId);
+
+      allow create: if isSelf(userId) &&
+        request.resource.data.keys().hasOnly([
+          'id',
+          'email',
+          'role',
+          'xp',
+          'badgeKeys',
+          'username',
+          'bio',
+          'language',
+          'privacyMode',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.id == userId &&
+        request.resource.data.role == 'user' &&
+        request.resource.data.xp == 0 &&
+        request.resource.data.badgeKeys is list &&
+        (
+          request.resource.data.language == 'en' ||
+          request.resource.data.language == 'ar'
+        ) &&
+        request.resource.data.privacyMode is bool;
+
+      allow update: if (
+          isSelf(userId) &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.xp == resource.data.xp &&
+          request.resource.data.badgeKeys == resource.data.badgeKeys &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'username',
+            'bio',
+            'language',
+            'privacyMode',
+            'updatedAt'
+          ]) &&
+          (
+            request.resource.data.language == 'en' ||
+            request.resource.data.language == 'ar'
+          )
+        ) || (
+          isAdmin() &&
+          request.resource.data.id == resource.data.id &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.xp == resource.data.xp &&
+          request.resource.data.badgeKeys == resource.data.badgeKeys &&
+          request.resource.data.username == resource.data.username &&
+          request.resource.data.bio == resource.data.bio &&
+          request.resource.data.language == resource.data.language &&
+          request.resource.data.privacyMode == resource.data.privacyMode &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'role',
+            'updatedAt'
+          ]) &&
+          (
+            request.resource.data.role == 'user' ||
+            request.resource.data.role == 'admin' ||
+            request.resource.data.role == 'organization'
+          )
+        );
+
+      allow delete: if false;
+
+      match /favorites/{postId} {
+        allow read: if isSelfOrAdmin(userId);
+        allow create: if isSelf(userId) &&
+          postExists(postId) &&
+          request.resource.data.keys().hasOnly([
+            'userId',
+            'postId',
+            'createdAt'
+          ]) &&
+          request.resource.data.userId == userId &&
+          request.resource.data.postId == postId;
+        allow update: if false;
+        allow delete: if isSelf(userId);
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if isSelfOrAdmin(userId);
+        allow create: if false;
+
+        allow update: if isSelf(userId) &&
+          request.resource.data.recipientUserId == resource.data.recipientUserId &&
+          request.resource.data.actorUserId == resource.data.actorUserId &&
+          request.resource.data.actorLabel == resource.data.actorLabel &&
+          request.resource.data.type == resource.data.type &&
+          request.resource.data.postId == resource.data.postId &&
+          request.resource.data.commentId == resource.data.commentId &&
+          request.resource.data.message == resource.data.message &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'isRead',
+            'readAt'
+          ]) &&
+          request.resource.data.isRead == true;
+
+        allow delete: if false;
+      }
+
+      match /subscriptions/current {
+        allow read: if isSelfOrAdmin(userId);
+
+        allow create: if isSelf(userId) &&
+          request.resource.data.keys().hasOnly([
+            'userId',
+            'planLevel',
+            'status',
+            'createdAt',
+            'updatedAt'
+          ]) &&
+          request.resource.data.userId == userId &&
+          request.resource.data.planLevel == 'free' &&
+          request.resource.data.status == 'active';
+
+        allow update: if isAdmin() &&
+          request.resource.data.userId == userId &&
+          isValidPlanLevel(request.resource.data.planLevel) &&
+          isValidPlanStatus(request.resource.data.status);
+
+        allow delete: if false;
+      }
+
+      match /xpEvents/{eventId} {
+        allow read: if isSelfOrAdmin(userId);
+        allow write: if false;
+      }
+    }
+
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn() &&
+        request.resource.data.keys().hasOnly([
+          'userId',
+          'text',
+          'category',
+          'lat',
+          'lng',
+          'locationName',
+          'createdAt'
+        ]) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() > 0 &&
+        request.resource.data.text.size() <= 280 &&
+        (request.resource.data.category == null ||
+          isValidCategory(request.resource.data.category)) &&
+        request.resource.data.lat is number &&
+        request.resource.data.lng is number &&
+        (
+          request.resource.data.locationName == null ||
+          request.resource.data.locationName is string
+        );
+
+      allow update: if (
+          isSignedIn() &&
+          resource.data.userId == request.auth.uid &&
+          isOwnerControlledPostUpdate()
+        ) || (
+          isAdmin() && isAdminModerationPostUpdate()
+        );
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+
+        allow create: if isSignedIn() &&
+          request.resource.data.keys().hasOnly([
+            'userId',
+            'authorLabel',
+            'text',
+            'createdAt'
+          ]) &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.authorLabel is string &&
+          request.resource.data.authorLabel.size() > 0 &&
+          request.resource.data.authorLabel.size() <= 60 &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 500;
+
+        allow update: if (
+            isSignedIn() &&
+            resource.data.userId == request.auth.uid &&
+            isOwnerControlledCommentUpdate()
+          ) || (
+            isAdmin() && isAdminModerationCommentUpdate()
+          );
+
+        allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      }
+
+      match /reactions/{userId} {
+        allow read: if isSignedIn();
+
+        allow create: if isSelf(userId) &&
+          request.resource.data.keys().hasOnly([
+            'postId',
+            'userId',
+            'type',
+            'createdAt'
+          ]) &&
+          request.resource.data.postId == postId &&
+          request.resource.data.userId == userId &&
+          request.resource.data.type == 'like';
+
+        allow update: if isSelf(userId) &&
+          request.resource.data.keys().hasOnly([
+            'postId',
+            'userId',
+            'type',
+            'createdAt'
+          ]) &&
+          request.resource.data.postId == resource.data.postId &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.type == 'like';
+
+        allow delete: if isSelf(userId);
+      }
+    }
+
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+    }
+
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+
+      allow create: if isSignedIn() &&
+        request.resource.data.keys().hasOnly([
+          'reporterUserId',
+          'targetType',
+          'targetId',
+          'targetPostId',
+          'reason',
+          'note',
+          'status',
+          'createdAt'
+        ]) &&
+        request.resource.data.reporterUserId == request.auth.uid &&
+        (
+          request.resource.data.targetType == 'post' ||
+          request.resource.data.targetType == 'comment'
+        ) &&
+        isValidReportReason(request.resource.data.reason) &&
+        request.resource.data.status == 'open' &&
+        (
+          request.resource.data.note == null ||
+          (
+            request.resource.data.note is string &&
+            request.resource.data.note.size() <= 300
+          )
+        ) &&
+        (
+          request.resource.data.targetType == 'post' ?
+            postExists(request.resource.data.targetId) &&
+            request.resource.data.targetPostId == null
+          :
+            request.resource.data.targetPostId is string &&
+            commentExists(
+              request.resource.data.targetPostId,
+              request.resource.data.targetId
+            )
+        );
+
+      allow update: if isAdmin() &&
+        request.resource.data.reporterUserId == resource.data.reporterUserId &&
+        request.resource.data.targetType == resource.data.targetType &&
+        request.resource.data.targetId == resource.data.targetId &&
+        request.resource.data.targetPostId == resource.data.targetPostId &&
+        request.resource.data.reason == resource.data.reason &&
+        request.resource.data.note == resource.data.note &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'updatedAt'
+        ]) &&
+        isValidReportStatus(request.resource.data.status);
+
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
