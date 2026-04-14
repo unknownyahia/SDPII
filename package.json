@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "npm --prefix mobile start",
+    "start:device": "npm --prefix mobile run start:device",
     "android": "npm --prefix mobile run android",
     "ios": "npm --prefix mobile run ios",
     "mobile:install": "npm --prefix mobile install",

@@ -1,11 +1,11 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "ignoreDeprecations": "6.0",
     "target": "ESNext",
     "module": "ESNext",
     "jsx": "react-jsx",
     "strict": true,
+    "lib": ["ESNext", "DOM"],
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,

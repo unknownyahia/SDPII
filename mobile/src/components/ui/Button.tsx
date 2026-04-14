@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -27,6 +28,13 @@ function AppButton({
 }: ButtonBaseProps & { variant: 'primary' | 'secondary' }) {
   const isDisabled = disabled || loading;
   const isPrimary = variant === 'primary';
+  const webInteractionStyle =
+    Platform.OS === 'web'
+      ? ({
+          cursor: isDisabled ? 'not-allowed' : 'pointer',
+          userSelect: 'none',
+        } as unknown as ViewStyle)
+      : null;
 
   return (
     <Pressable
@@ -37,6 +45,7 @@ function AppButton({
         isPrimary ? styles.primary : styles.secondary,
         pressed && !isDisabled && (isPrimary ? styles.primaryPressed : styles.secondaryPressed),
         isDisabled && styles.disabled,
+        webInteractionStyle,
         style,
       ]}
       {...rest}

@@ -29,12 +29,18 @@ export function ScreenContainer({
   contentContainerStyle,
   style,
 }: ScreenContainerProps) {
+  const isWeb = Platform.OS === 'web';
+  const webContentStyle = isWeb ? styles.webContent : null;
+  const webPaddedStyle = isWeb && padded ? styles.webPadded : null;
+
   const content = scroll ? (
     <ScrollView
       style={styles.flex}
       contentContainerStyle={[
         styles.scrollContent,
+        webContentStyle,
         padded && styles.padded,
+        webPaddedStyle,
         contentContainerStyle,
       ]}
       keyboardShouldPersistTaps="handled"
@@ -46,7 +52,9 @@ export function ScreenContainer({
     <View
       style={[
         styles.flex,
+        webContentStyle,
         padded && styles.padded,
+        webPaddedStyle,
         contentContainerStyle,
       ]}
     >
@@ -86,5 +94,15 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+  },
+  webContent: {
+    width: '100%',
+    maxWidth: 1280,
+    alignSelf: 'center',
+  },
+  webPadded: {
+    paddingHorizontal: spacing.xxxl,
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.xxxl,
   },
 });

@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Alert,
   StyleSheet,
   Text,
   View,
@@ -14,6 +13,7 @@ import { ScreenContainer } from '../../components/ui/ScreenContainer';
 import { TextField } from '../../components/ui/TextField';
 import { AuthValidationError, loginUser } from '../../services/authService';
 import { colors, spacing, typography } from '../../theme/designSystem';
+import { showAlert } from '../../utils/showAlert';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -31,9 +31,9 @@ export function LoginScreen({ navigation }: Props) {
       setPassword('');
     } catch (error: any) {
       if (error instanceof AuthValidationError) {
-        Alert.alert('Missing data', error.message);
+        showAlert('Missing data', error.message);
       } else {
-        Alert.alert('Login error', error?.message ?? 'Something went wrong');
+        showAlert('Login error', error?.message ?? 'Something went wrong');
       }
     } finally {
       setLoading(false);
@@ -59,6 +59,7 @@ export function LoginScreen({ navigation }: Props) {
             <TextField
               label="Email"
               autoCapitalize="none"
+              autoComplete="email"
               autoCorrect={false}
               keyboardType="email-address"
               placeholder="name@example.com"
@@ -69,10 +70,13 @@ export function LoginScreen({ navigation }: Props) {
             <TextField
               label="Password"
               autoCapitalize="none"
+              autoComplete="current-password"
               placeholder="Enter your password"
               secureTextEntry
+              returnKeyType="done"
               value={password}
               onChangeText={setPassword}
+              onSubmitEditing={handleLogin}
             />
           </View>
 
@@ -98,6 +102,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: 'center',
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
   },
   card: {
     gap: spacing.xl,

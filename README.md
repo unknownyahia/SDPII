@@ -53,7 +53,11 @@ Useful mobile commands:
 ```bash
 npm run mobile:typecheck
 npm run mobile:lint
+npm run start:device
 ```
+
+For physical phone setup and exact real-device steps, see
+[mobile/REAL_DEVICE_RUN.md](/Users/unknownyahia/Documents/SDPII/SDPII/mobile/REAL_DEVICE_RUN.md).
 
 ## Run Backend / Emulators
 
@@ -84,7 +88,7 @@ This runs:
 - Functions emulator
 - `node --test tests/backend-trust.test.cjs`
 
-More detail is in [tests/README.md](/Users/unknownyahia/Documents/SDPII/spots-poc-updated/tests/README.md).
+More detail is in [tests/README.md](tests/README.md).
 
 ## Manual Setup Required
 

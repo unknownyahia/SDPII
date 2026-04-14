@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -12,13 +13,26 @@ import { colors, radius, spacing, typography } from '../../theme/designSystem';
 type TextFieldProps = TextInputProps & {
   label?: string;
   helperText?: string;
+  webType?: string;
 };
 
-export function TextField({ label, helperText, style, ...props }: TextFieldProps) {
+export function TextField({
+  label,
+  helperText,
+  style,
+  webType,
+  ...props
+}: TextFieldProps) {
+  const webInputProps =
+    Platform.OS === 'web' && webType
+      ? ({ type: webType } as unknown as TextInputProps)
+      : undefined;
+
   return (
     <View style={styles.wrapper}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
+        {...webInputProps}
         placeholderTextColor={colors.textSubtle}
         style={[styles.input, style]}
         {...props}

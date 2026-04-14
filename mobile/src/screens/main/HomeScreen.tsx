@@ -56,8 +56,9 @@ const styles = StyleSheet.create({
   },
   metaRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing.lg,
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
@@ -66,10 +67,12 @@ const styles = StyleSheet.create({
   metaLabel: {
     ...typography.label,
     color: colors.textSubtle,
+    minWidth: 120,
   },
   metaValue: {
     ...typography.body,
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     textAlign: 'right',
   },
 });

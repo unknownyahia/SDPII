@@ -21,7 +21,8 @@ export function InfoRow({ label, value, subtle = false }: InfoRowProps) {
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: spacing.lg,
     paddingVertical: spacing.sm,
@@ -34,11 +35,15 @@ const styles = StyleSheet.create({
   label: {
     ...typography.label,
     color: colors.textSubtle,
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 120,
   },
   value: {
     ...typography.body,
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 180,
     textAlign: 'right',
   },
 });

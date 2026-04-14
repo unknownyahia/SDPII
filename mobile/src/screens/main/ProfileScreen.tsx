@@ -1,10 +1,11 @@
 import React from 'react';
 import {
-  Alert,
+  Platform,
   StyleSheet,
   Switch,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 import { AppHeader } from '../../components/ui/AppHeader';
@@ -52,6 +53,7 @@ import {
   updateUserPlan,
 } from '../../services/subscriptionService';
 import { colors, radius, spacing, typography } from '../../theme/designSystem';
+import { showAlert } from '../../utils/showAlert';
 import type { AdminAnalyticsSnapshot } from '../../types/analytics';
 import type { AppNotification } from '../../types/notification';
 import type { AppLanguage } from '../../types/profile';
@@ -88,6 +90,9 @@ function ItemCard({
 
 export function ProfileScreen() {
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  const isWideLayout = Platform.OS === 'web' && width >= 980;
+  const isDesktopLayout = Platform.OS === 'web' && width >= 1320;
   const [logoutLoading, setLogoutLoading] = React.useState(false);
   const [loadingProfile, setLoadingProfile] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -115,29 +120,61 @@ export function ProfileScreen() {
   const [analyticsLoading, setAnalyticsLoading] = React.useState(false);
 
   React.useEffect(() => {
-    const unsubscribe = observeFavoritePostIds(user?.id, setFavoritePostIds);
+    const unsubscribe = observeFavoritePostIds(
+      user?.id,
+      setFavoritePostIds,
+      error => {
+        showAlert('Favorites error', error?.message ?? 'Failed to load favorites.');
+      }
+    );
     return unsubscribe;
   }, [user?.id]);
 
   React.useEffect(() => {
-    const unsubscribe = observeNotifications(user?.id, setNotifications);
+    const unsubscribe = observeNotifications(
+      user?.id,
+      setNotifications,
+      error => {
+        showAlert(
+          'Notifications error',
+          error?.message ?? 'Failed to load notifications.'
+        );
+      }
+    );
     return unsubscribe;
   }, [user?.id]);
 
   React.useEffect(() => {
-    const unsubscribe = observeUserSubscription(user?.id, nextSubscription => {
-      setSubscription(nextSubscription.userId ? nextSubscription : null);
-    });
+    const unsubscribe = observeUserSubscription(
+      user?.id,
+      nextSubscription => {
+        setSubscription(nextSubscription.userId ? nextSubscription : null);
+      },
+      error => {
+        showAlert(
+          'Subscription error',
+          error?.message ?? 'Failed to load subscription details.'
+        );
+      }
+    );
     return unsubscribe;
   }, [user?.id]);
 
   React.useEffect(() => {
-    const unsubscribe = observeReports(role, setReports);
+    const unsubscribe = observeReports(
+      role,
+      setReports,
+      error => {
+        showAlert('Moderation error', error?.message ?? 'Failed to load reports.');
+      }
+    );
     return unsubscribe;
   }, [role]);
 
   React.useEffect(() => {
-    const unsubscribe = subscribeToPosts(setPosts);
+    const unsubscribe = subscribeToPosts(setPosts, error => {
+      showAlert('Posts error', error?.message ?? 'Failed to load saved posts.');
+    });
     return unsubscribe;
   }, []);
 
@@ -164,12 +201,12 @@ export function ProfileScreen() {
           setLoadingProfile(false);
         },
         error => {
-          Alert.alert('Profile error', error?.message ?? 'Failed to load profile');
+          showAlert('Profile error', error?.message ?? 'Failed to load profile');
           setLoadingProfile(false);
         }
       );
     } catch (error: any) {
-      Alert.alert('Profile error', error?.message ?? 'Failed to load profile');
+      showAlert('Profile error', error?.message ?? 'Failed to load profile');
       setLoadingProfile(false);
     }
 
@@ -196,12 +233,12 @@ export function ProfileScreen() {
         language,
         privacyMode,
       });
-      Alert.alert('Saved', 'Your profile settings were updated.');
+      showAlert('Saved', 'Your profile settings were updated.');
     } catch (error: any) {
       if (error instanceof ProfileValidationError) {
-        Alert.alert('Profile validation', error.message);
+        showAlert('Profile validation', error.message);
       } else {
-        Alert.alert('Save error', error?.message ?? 'Failed to update profile');
+        showAlert('Save error', error?.message ?? 'Failed to update profile');
       }
     } finally {
       setSaving(false);
@@ -213,7 +250,7 @@ export function ProfileScreen() {
     try {
       await logoutUser();
     } catch (error: any) {
-      Alert.alert('Logout error', error?.message ?? 'Something went wrong');
+      showAlert('Logout error', error?.message ?? 'Something went wrong');
     } finally {
       setLogoutLoading(false);
     }
@@ -225,9 +262,9 @@ export function ProfileScreen() {
       await markUserNotificationRead(user?.id, notificationId);
     } catch (error: any) {
       if (error instanceof NotificationValidationError) {
-        Alert.alert('Notification error', error.message);
+        showAlert('Notification error', error.message);
       } else {
-        Alert.alert('Notification error', error?.message ?? 'Failed to update notification');
+        showAlert('Notification error', error?.message ?? 'Failed to update notification');
       }
     } finally {
       setReadingNotificationId(null);
@@ -240,9 +277,9 @@ export function ProfileScreen() {
       await reviewReportStatus({ role, reportId, status });
     } catch (error: any) {
       if (error instanceof ModerationValidationError) {
-        Alert.alert('Moderation error', error.message);
+        showAlert('Moderation error', error.message);
       } else {
-        Alert.alert('Moderation error', error?.message ?? 'Failed to update report');
+        showAlert('Moderation error', error?.message ?? 'Failed to update report');
       }
     } finally {
       setReviewingReportId(null);
@@ -255,9 +292,9 @@ export function ProfileScreen() {
       await hideReportedTarget({ role, report });
     } catch (error: any) {
       if (error instanceof ModerationValidationError) {
-        Alert.alert('Moderation error', error.message);
+        showAlert('Moderation error', error.message);
       } else {
-        Alert.alert('Moderation error', error?.message ?? 'Failed to hide content');
+        showAlert('Moderation error', error?.message ?? 'Failed to hide content');
       }
     } finally {
       setReviewingReportId(null);
@@ -272,12 +309,12 @@ export function ProfileScreen() {
         targetUserId: organizationUserId,
       });
       setOrganizationUserId('');
-      Alert.alert('Updated', 'The account was marked as an organization.');
+      showAlert('Updated', 'The account was marked as an organization.');
     } catch (error: any) {
       if (error instanceof OrganizationValidationError) {
-        Alert.alert('Organization error', error.message);
+        showAlert('Organization error', error.message);
       } else {
-        Alert.alert('Organization error', error?.message ?? 'Failed to update account role');
+        showAlert('Organization error', error?.message ?? 'Failed to update account role');
       }
     } finally {
       setOrganizationLoading(false);
@@ -294,12 +331,12 @@ export function ProfileScreen() {
         status: planStatus,
       });
       setPlanTargetUserId('');
-      Alert.alert('Updated', 'The subscription plan was updated.');
+      showAlert('Updated', 'The subscription plan was updated.');
     } catch (error: any) {
       if (error instanceof SubscriptionValidationError) {
-        Alert.alert('Plan error', error.message);
+        showAlert('Plan error', error.message);
       } else {
-        Alert.alert('Plan error', error?.message ?? 'Failed to update plan');
+        showAlert('Plan error', error?.message ?? 'Failed to update plan');
       }
     } finally {
       setPlanLoading(false);
@@ -313,9 +350,9 @@ export function ProfileScreen() {
       setAnalytics(nextAnalytics);
     } catch (error: any) {
       if (error instanceof AnalyticsValidationError) {
-        Alert.alert('Analytics error', error.message);
+        showAlert('Analytics error', error.message);
       } else {
-        Alert.alert('Analytics error', error?.message ?? 'Failed to load analytics');
+        showAlert('Analytics error', error?.message ?? 'Failed to load analytics');
       }
     } finally {
       setAnalyticsLoading(false);
@@ -336,204 +373,259 @@ export function ProfileScreen() {
   }
 
   return (
-    <ScreenContainer scroll contentContainerStyle={styles.content}>
+    <ScreenContainer
+      scroll
+      contentContainerStyle={[styles.content, isDesktopLayout && styles.contentDesktop]}
+    >
       <AppHeader
         eyebrow="Profile"
         title="Account, settings, and operator tools."
         subtitle="Everything stays on one screen for now, but the layout is grouped more intentionally to reduce clutter."
       />
 
-      <View style={styles.stack}>
-        <Card>
-          <Section
-            title={username || 'Your profile'}
-            subtitle={email ?? 'No email available'}
+      <View style={[styles.stack, isDesktopLayout && styles.stackDesktop]}>
+        <View style={[styles.primaryGrid, isWideLayout && styles.primaryGridWide]}>
+          <View
+            style={[
+              styles.primaryColumn,
+              isWideLayout && styles.primaryColumnWide,
+            ]}
           >
-            <View style={styles.metricRow}>
-              <MetricTile label="Role" value={role} accent />
-              <MetricTile label="XP" value={xp} />
-              <MetricTile
-                label="Plan"
-                value={subscription?.planLevel ?? 'free'}
-              />
-            </View>
-            <InfoRow label="Plan status" value={subscription?.status ?? 'inactive'} />
-            <InfoRow label="Unread notifications" value={String(unreadNotificationsCount)} subtle />
-          </Section>
-        </Card>
-
-        <Card>
-          <Section
-            title="Edit profile"
-            subtitle="Refine your public identity and personal preferences."
-          >
-            <TextField
-              label="Username"
-              placeholder="Username"
-              value={username}
-              onChangeText={setUsername}
-            />
-            <TextField
-              label="Bio"
-              placeholder="Short bio"
-              value={bio}
-              onChangeText={setBio}
-              multiline
-              style={styles.bioInput}
-            />
-
-            <View style={styles.inlineSection}>
-              <Text style={styles.inlineLabel}>Language</Text>
-              <View style={styles.chipRow}>
-                <FilterChip label="English" active={language === 'en'} onPress={() => setLanguage('en')} />
-                <FilterChip label="Arabic" active={language === 'ar'} onPress={() => setLanguage('ar')} />
-              </View>
-            </View>
-
-            <View style={styles.switchCard}>
-              <View style={styles.switchCopy}>
-                <Text style={styles.switchTitle}>Privacy mode</Text>
-                <Text style={styles.switchSubtitle}>
-                  Reduce profile visibility for future social features.
-                </Text>
-              </View>
-              <Switch value={privacyMode} onValueChange={setPrivacyMode} />
-            </View>
-          </Section>
-        </Card>
-
-        <Card>
-          <Section
-            title="Saved favorites"
-            subtitle="Posts you bookmarked from Explore for quick access."
-          >
-            {favoritePosts.length === 0 ? (
-              <EmptyState
-                title="No saved posts yet"
-                subtitle="Bookmark posts from Explore to build your personal shortlist."
-              />
-            ) : (
-              <View style={styles.listStack}>
-                {favoritePosts.map(post => (
-                  <ItemCard
-                    key={post.id}
-                    eyebrow={(post.category || 'spot').toUpperCase()}
-                    title={post.text}
-                    subtitle={
-                      post.locationName ||
-                      `Lat ${post.lat.toFixed(4)}, Lng ${post.lng.toFixed(4)}`
-                    }
+            <Card>
+              <Section
+                title={username || 'Your profile'}
+                subtitle={email ?? 'No email available'}
+              >
+                <View style={styles.metricRow}>
+                  <MetricTile label="Role" value={role} accent />
+                  <MetricTile label="XP" value={xp} />
+                  <MetricTile
+                    label="Plan"
+                    value={subscription?.planLevel ?? 'free'}
                   />
-                ))}
-              </View>
-            )}
-          </Section>
-        </Card>
+                </View>
+                <InfoRow label="Plan status" value={subscription?.status ?? 'inactive'} />
+                <InfoRow
+                  label="Unread notifications"
+                  value={String(unreadNotificationsCount)}
+                  subtle
+                />
+              </Section>
+            </Card>
+          </View>
 
-        <Card>
-          <Section
-            title={`Notifications (${unreadNotificationsCount} unread)`}
-            subtitle="Stay on top of likes and comments connected to your activity."
+          <View
+            style={[
+              styles.primaryColumn,
+              isWideLayout && styles.primaryColumnWide,
+            ]}
           >
-            {notifications.length === 0 ? (
-              <EmptyState
-                title="No notifications yet"
-                subtitle="You’ll see activity updates here once people start interacting."
-              />
-            ) : (
-              <View style={styles.listStack}>
-                {notifications.map(notification => (
-                  <ItemCard
-                    key={notification.id}
-                    eyebrow={notification.type === 'comment_on_post' ? 'COMMENT' : 'LIKE'}
-                    title={notification.message}
-                    subtitle={notification.isRead ? 'Read' : 'Unread'}
-                    accent={!notification.isRead}
-                  >
-                    {!notification.isRead ? (
-                      <View style={styles.singleAction}>
-                        <SecondaryButton
-                          label={readingNotificationId === notification.id ? 'Updating...' : 'Mark as Read'}
-                          disabled={readingNotificationId === notification.id}
-                          onPress={() => handleMarkNotificationRead(notification.id)}
-                        />
-                      </View>
-                    ) : null}
-                  </ItemCard>
-                ))}
-              </View>
-            )}
-          </Section>
-        </Card>
+            <Card>
+              <Section
+                title="Edit profile"
+                subtitle="Refine your public identity and personal preferences."
+              >
+                <TextField
+                  label="Username"
+                  placeholder="Username"
+                  value={username}
+                  onChangeText={setUsername}
+                />
+                <TextField
+                  label="Bio"
+                  placeholder="Short bio"
+                  value={bio}
+                  onChangeText={setBio}
+                  multiline
+                  style={styles.bioInput}
+                />
+
+                <View style={styles.inlineSection}>
+                  <Text style={styles.inlineLabel}>Language</Text>
+                  <View style={styles.chipRow}>
+                    <FilterChip label="English" active={language === 'en'} onPress={() => setLanguage('en')} />
+                    <FilterChip label="Arabic" active={language === 'ar'} onPress={() => setLanguage('ar')} />
+                  </View>
+                </View>
+
+                <View style={styles.switchCard}>
+                  <View style={styles.switchCopy}>
+                    <Text style={styles.switchTitle}>Privacy mode</Text>
+                    <Text style={styles.switchSubtitle}>
+                      Reduce profile visibility for future social features.
+                    </Text>
+                  </View>
+                  <Switch value={privacyMode} onValueChange={setPrivacyMode} />
+                </View>
+              </Section>
+            </Card>
+          </View>
+        </View>
+
+        <View style={[styles.activityGrid, isWideLayout && styles.activityGridWide]}>
+          <View
+            style={[
+              styles.activityColumn,
+              isWideLayout && styles.activityColumnWide,
+            ]}
+          >
+            <Card>
+              <Section
+                title="Saved favorites"
+                subtitle="Posts you bookmarked from Explore for quick access."
+              >
+                {favoritePosts.length === 0 ? (
+                  <EmptyState
+                    title="No saved posts yet"
+                    subtitle="Bookmark posts from Explore to build your personal shortlist."
+                  />
+                ) : (
+                  <View style={styles.listStack}>
+                    {favoritePosts.map(post => (
+                      <ItemCard
+                        key={post.id}
+                        eyebrow={(post.category || 'spot').toUpperCase()}
+                        title={post.text}
+                        subtitle={
+                          post.locationName ||
+                          `Lat ${post.lat.toFixed(4)}, Lng ${post.lng.toFixed(4)}`
+                        }
+                      />
+                    ))}
+                  </View>
+                )}
+              </Section>
+            </Card>
+          </View>
+
+          <View
+            style={[
+              styles.activityColumn,
+              isWideLayout && styles.activityColumnWide,
+            ]}
+          >
+            <Card>
+              <Section
+                title={`Notifications (${unreadNotificationsCount} unread)`}
+                subtitle="Stay on top of likes and comments connected to your activity."
+              >
+                {notifications.length === 0 ? (
+                  <EmptyState
+                    title="No notifications yet"
+                    subtitle="You’ll see activity updates here once people start interacting."
+                  />
+                ) : (
+                  <View style={styles.listStack}>
+                    {notifications.map(notification => (
+                      <ItemCard
+                        key={notification.id}
+                        eyebrow={notification.type === 'comment_on_post' ? 'COMMENT' : 'LIKE'}
+                        title={notification.message}
+                        subtitle={notification.isRead ? 'Read' : 'Unread'}
+                        accent={!notification.isRead}
+                      >
+                        {!notification.isRead ? (
+                          <View style={styles.singleAction}>
+                            <SecondaryButton
+                              label={readingNotificationId === notification.id ? 'Updating...' : 'Mark as Read'}
+                              disabled={readingNotificationId === notification.id}
+                              onPress={() => handleMarkNotificationRead(notification.id)}
+                            />
+                          </View>
+                        ) : null}
+                      </ItemCard>
+                    ))}
+                  </View>
+                )}
+              </Section>
+            </Card>
+          </View>
+        </View>
 
         {role === 'admin' ? (
           <>
-            <Card>
-              <Section
-                title="Organization accounts"
-                subtitle="Grant organization capabilities to a target account."
+            <View style={[styles.adminGrid, isWideLayout && styles.adminGridWide]}>
+              <View
+                style={[
+                  styles.adminColumn,
+                  isWideLayout && styles.adminColumnWide,
+                ]}
               >
-                <TextField
-                  label="Target user id"
-                  placeholder="User id to mark as organization"
-                  value={organizationUserId}
-                  onChangeText={setOrganizationUserId}
-                />
-                <PrimaryButton
-                  label={organizationLoading ? 'Updating...' : 'Mark User As Organization'}
-                  disabled={organizationLoading}
-                  onPress={handleMarkOrganization}
-                />
-              </Section>
-            </Card>
+                <Card>
+                  <Section
+                    title="Organization accounts"
+                    subtitle="Grant organization capabilities to a target account."
+                  >
+                    <TextField
+                      label="Target user id"
+                      placeholder="User id to mark as organization"
+                      value={organizationUserId}
+                      onChangeText={setOrganizationUserId}
+                    />
+                    <PrimaryButton
+                      label={organizationLoading ? 'Updating...' : 'Mark User As Organization'}
+                      disabled={organizationLoading}
+                      onPress={handleMarkOrganization}
+                    />
+                  </Section>
+                </Card>
+              </View>
 
-            <Card>
-              <Section
-                title="Plan management"
-                subtitle="Adjust subscription access without leaving the profile workspace."
+              <View
+                style={[
+                  styles.adminColumn,
+                  isWideLayout && styles.adminColumnWide,
+                ]}
               >
-                <TextField
-                  label="Target user id"
-                  placeholder="User id to update plan"
-                  value={planTargetUserId}
-                  onChangeText={setPlanTargetUserId}
-                />
+                <Card>
+                  <Section
+                    title="Plan management"
+                    subtitle="Adjust subscription access without leaving the profile workspace."
+                  >
+                    <TextField
+                      label="Target user id"
+                      placeholder="User id to update plan"
+                      value={planTargetUserId}
+                      onChangeText={setPlanTargetUserId}
+                    />
 
-                <View style={styles.inlineSection}>
-                  <Text style={styles.inlineLabel}>Plan level</Text>
-                  <View style={styles.chipRow}>
-                    {(['free', 'organization_basic', 'organization_premium'] as PlanLevel[]).map(item => (
-                      <FilterChip
-                        key={item}
-                        label={item}
-                        active={planLevel === item}
-                        onPress={() => setPlanLevel(item)}
-                      />
-                    ))}
-                  </View>
-                </View>
+                    <View style={styles.inlineSection}>
+                      <Text style={styles.inlineLabel}>Plan level</Text>
+                      <View style={styles.chipRow}>
+                        {(['free', 'organization_basic', 'organization_premium'] as PlanLevel[]).map(item => (
+                          <FilterChip
+                            key={item}
+                            label={item}
+                            active={planLevel === item}
+                            onPress={() => setPlanLevel(item)}
+                          />
+                        ))}
+                      </View>
+                    </View>
 
-                <View style={styles.inlineSection}>
-                  <Text style={styles.inlineLabel}>Plan status</Text>
-                  <View style={styles.chipRow}>
-                    {(['active', 'inactive', 'trial'] as PlanStatus[]).map(item => (
-                      <FilterChip
-                        key={item}
-                        label={item}
-                        active={planStatus === item}
-                        onPress={() => setPlanStatus(item)}
-                      />
-                    ))}
-                  </View>
-                </View>
+                    <View style={styles.inlineSection}>
+                      <Text style={styles.inlineLabel}>Plan status</Text>
+                      <View style={styles.chipRow}>
+                        {(['active', 'inactive', 'trial'] as PlanStatus[]).map(item => (
+                          <FilterChip
+                            key={item}
+                            label={item}
+                            active={planStatus === item}
+                            onPress={() => setPlanStatus(item)}
+                          />
+                        ))}
+                      </View>
+                    </View>
 
-                <PrimaryButton
-                  label={planLoading ? 'Updating...' : 'Update User Plan'}
-                  disabled={planLoading}
-                  onPress={handleUpdatePlan}
-                />
-              </Section>
-            </Card>
+                    <PrimaryButton
+                      label={planLoading ? 'Updating...' : 'Update User Plan'}
+                      disabled={planLoading}
+                      onPress={handleUpdatePlan}
+                    />
+                  </Section>
+                </Card>
+              </View>
+            </View>
 
             <Card>
               <Section
@@ -559,44 +651,72 @@ export function ProfileScreen() {
                       <MetricTile label="Organizations" value={analytics.totalOrganizationAccounts} />
                     </View>
 
-                    <Section title="Posts by category">
-                      <View style={styles.listStack}>
-                        {analytics.postsByCategory.map(item => (
-                          <ItemCard
-                            key={`post-${item.category}`}
-                            eyebrow="POSTS"
-                            title={item.category}
-                            subtitle={`Count: ${item.count}`}
-                          />
-                        ))}
+                    <View
+                      style={[
+                        styles.analyticsPanelsGrid,
+                        isDesktopLayout && styles.analyticsPanelsGridWide,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.analyticsPanel,
+                          isDesktopLayout && styles.analyticsPanelWide,
+                        ]}
+                      >
+                        <Section title="Posts by category">
+                          <View style={styles.listStack}>
+                            {analytics.postsByCategory.map(item => (
+                              <ItemCard
+                                key={`post-${item.category}`}
+                                eyebrow="POSTS"
+                                title={item.category}
+                                subtitle={`Count: ${item.count}`}
+                              />
+                            ))}
+                          </View>
+                        </Section>
                       </View>
-                    </Section>
 
-                    <Section title="Events by category">
-                      <View style={styles.listStack}>
-                        {analytics.eventsByCategory.map(item => (
-                          <ItemCard
-                            key={`event-${item.category}`}
-                            eyebrow="EVENTS"
-                            title={item.category}
-                            subtitle={`Count: ${item.count}`}
-                          />
-                        ))}
+                      <View
+                        style={[
+                          styles.analyticsPanel,
+                          isDesktopLayout && styles.analyticsPanelWide,
+                        ]}
+                      >
+                        <Section title="Events by category">
+                          <View style={styles.listStack}>
+                            {analytics.eventsByCategory.map(item => (
+                              <ItemCard
+                                key={`event-${item.category}`}
+                                eyebrow="EVENTS"
+                                title={item.category}
+                                subtitle={`Count: ${item.count}`}
+                              />
+                            ))}
+                          </View>
+                        </Section>
                       </View>
-                    </Section>
 
-                    <Section title="Reports by status">
-                      <View style={styles.listStack}>
-                        {analytics.reportsByStatus.map(item => (
-                          <ItemCard
-                            key={`report-${item.status}`}
-                            eyebrow="REPORTS"
-                            title={item.status}
-                            subtitle={`Count: ${item.count}`}
-                          />
-                        ))}
+                      <View
+                        style={[
+                          styles.analyticsPanel,
+                          isDesktopLayout && styles.analyticsPanelWide,
+                        ]}
+                      >
+                        <Section title="Reports by status">
+                          <View style={styles.listStack}>
+                            {analytics.reportsByStatus.map(item => (
+                              <ItemCard
+                                key={`report-${item.status}`}
+                                eyebrow="REPORTS"
+                                title={item.status}
+                                subtitle={`Count: ${item.count}`}
+                              />
+                            ))}
+                          </View>
+                        </Section>
                       </View>
-                    </Section>
+                    </View>
                   </View>
                 ) : (
                   <EmptyState
@@ -618,39 +738,51 @@ export function ProfileScreen() {
                     subtitle="When users report posts or comments, they will show up here."
                   />
                 ) : (
-                  <View style={styles.listStack}>
+                  <View
+                    style={[
+                      styles.reportGrid,
+                      isDesktopLayout && styles.reportGridWide,
+                    ]}
+                  >
                     {reports.map(report => (
-                      <ItemCard
+                      <View
                         key={report.id}
-                        eyebrow={`${report.targetType.toUpperCase()} REPORT`}
-                        title={`Reporter: ${report.reporterUserId}`}
-                        subtitle={`Target: ${report.targetId} • Reason: ${report.reason}`}
+                        style={[
+                          styles.reportCell,
+                          isDesktopLayout && styles.reportCellWide,
+                        ]}
                       >
-                        <Text style={styles.reportMeta}>Status: {report.status}</Text>
-                        <Text style={styles.reportMeta}>Note: {report.note || 'No note'}</Text>
-                        <View style={styles.chipRow}>
-                          {(['open', 'reviewed', 'dismissed', 'action_taken'] as ReportStatus[]).map(status => (
-                            <FilterChip
-                              key={status}
-                              label={status}
-                              active={report.status === status}
-                              onPress={() => handleReportStatusChange(report.id, status)}
+                        <ItemCard
+                          eyebrow={`${report.targetType.toUpperCase()} REPORT`}
+                          title={`Reporter: ${report.reporterUserId}`}
+                          subtitle={`Target: ${report.targetId} • Reason: ${report.reason}`}
+                        >
+                          <Text style={styles.reportMeta}>Status: {report.status}</Text>
+                          <Text style={styles.reportMeta}>Note: {report.note || 'No note'}</Text>
+                          <View style={styles.chipRow}>
+                            {(['open', 'reviewed', 'dismissed', 'action_taken'] as ReportStatus[]).map(status => (
+                              <FilterChip
+                                key={status}
+                                label={status}
+                                active={report.status === status}
+                                onPress={() => handleReportStatusChange(report.id, status)}
+                                disabled={reviewingReportId === report.id}
+                              />
+                            ))}
+                          </View>
+                          <View style={styles.singleAction}>
+                            <SecondaryButton
+                              label={
+                                reviewingReportId === report.id
+                                  ? 'Updating...'
+                                  : 'Hide Reported Content'
+                              }
                               disabled={reviewingReportId === report.id}
+                              onPress={() => handleHideReportedTarget(report)}
                             />
-                          ))}
-                        </View>
-                        <View style={styles.singleAction}>
-                          <SecondaryButton
-                            label={
-                              reviewingReportId === report.id
-                                ? 'Updating...'
-                                : 'Hide Reported Content'
-                            }
-                            disabled={reviewingReportId === report.id}
-                            onPress={() => handleHideReportedTarget(report)}
-                          />
-                        </View>
-                      </ItemCard>
+                          </View>
+                        </ItemCard>
+                      </View>
                     ))}
                   </View>
                 )}
@@ -659,17 +791,26 @@ export function ProfileScreen() {
           </>
         ) : null}
 
-        <View style={styles.footerActions}>
-          <PrimaryButton
-            label="Save Settings"
-            loading={saving}
-            onPress={handleSave}
-          />
-          <SecondaryButton
-            label={logoutLoading ? 'Signing Out...' : 'Sign Out'}
-            disabled={logoutLoading}
-            onPress={handleLogout}
-          />
+        <View style={[styles.footerActions, isWideLayout && styles.footerActionsWide]}>
+          <View style={[styles.footerPrimaryAction, isWideLayout && styles.footerPrimaryActionWide]}>
+            <PrimaryButton
+              label="Save Settings"
+              loading={saving}
+              onPress={handleSave}
+            />
+          </View>
+          <View
+            style={[
+              styles.footerSecondaryAction,
+              isWideLayout && styles.footerSecondaryActionWide,
+            ]}
+          >
+            <SecondaryButton
+              label={logoutLoading ? 'Signing Out...' : 'Sign Out'}
+              disabled={logoutLoading}
+              onPress={handleLogout}
+            />
+          </View>
         </View>
       </View>
     </ScreenContainer>
@@ -680,11 +821,60 @@ const styles = StyleSheet.create({
   content: {
     paddingBottom: spacing.xxxl,
   },
+  contentDesktop: {
+    paddingBottom: spacing.xxxl + spacing.lg,
+  },
   stack: {
     gap: spacing.lg,
   },
+  stackDesktop: {
+    gap: spacing.xl,
+  },
+  primaryGrid: {
+    gap: spacing.lg,
+  },
+  primaryGridWide: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  primaryColumn: {
+    gap: spacing.lg,
+  },
+  primaryColumnWide: {
+    flex: 1,
+    minWidth: 0,
+  },
+  activityGrid: {
+    gap: spacing.lg,
+  },
+  activityGridWide: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  activityColumn: {
+    gap: spacing.lg,
+  },
+  activityColumnWide: {
+    flex: 1,
+    minWidth: 0,
+  },
+  adminGrid: {
+    gap: spacing.lg,
+  },
+  adminGridWide: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  adminColumn: {
+    gap: spacing.lg,
+  },
+  adminColumnWide: {
+    flex: 1,
+    minWidth: 0,
+  },
   metricRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   metricGrid: {
@@ -694,6 +884,20 @@ const styles = StyleSheet.create({
   },
   analyticsStack: {
     gap: spacing.xl,
+  },
+  analyticsPanelsGrid: {
+    gap: spacing.lg,
+  },
+  analyticsPanelsGridWide: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  analyticsPanel: {
+    gap: spacing.lg,
+  },
+  analyticsPanelWide: {
+    flex: 1,
+    minWidth: 0,
   },
   inlineSection: {
     gap: spacing.sm,
@@ -709,6 +913,7 @@ const styles = StyleSheet.create({
   },
   switchCard: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.lg,
@@ -774,8 +979,39 @@ const styles = StyleSheet.create({
   reportMeta: {
     ...typography.caption,
   },
+  reportGrid: {
+    gap: spacing.md,
+  },
+  reportGridWide: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+  },
+  reportCell: {
+    minWidth: 0,
+  },
+  reportCellWide: {
+    flex: 1,
+    minWidth: 360,
+  },
   footerActions: {
     gap: spacing.md,
     marginTop: spacing.sm,
+  },
+  footerActionsWide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  footerPrimaryAction: {
+    minWidth: 0,
+  },
+  footerPrimaryActionWide: {
+    flex: 1,
+  },
+  footerSecondaryAction: {
+    minWidth: 0,
+  },
+  footerSecondaryActionWide: {
+    width: 180,
   },
 });
