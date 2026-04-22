@@ -93,6 +93,11 @@ export async function getProfileById(userId: string, email: string | null) {
   return mapProfileDocument(snapshot, { id: userId, email });
 }
 
+export async function profileExistsById(userId: string) {
+  const snapshot = await getDoc(doc(db, USERS_COLLECTION, userId));
+  return snapshot.exists();
+}
+
 export function subscribeToProfileById(
   userId: string,
   email: string | null,

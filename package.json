@@ -10,6 +10,12 @@
     "mobile:typecheck": "npm --prefix mobile run typecheck",
     "mobile:lint": "npm --prefix mobile run lint",
     "functions:install": "npm --prefix functions install",
+    "seed:discovery:qatar": "node scripts/seed-discovery-data.cjs",
+    "seed:discovery:qatar:phaseA": "node scripts/seed-discovery-data.cjs --phase phaseA",
+    "seed:discovery:qatar:phaseB": "node scripts/seed-discovery-data.cjs --phase phaseB",
+    "seed:discovery:qatar:apply": "node scripts/seed-discovery-data.cjs --apply",
+    "seed:discovery:qatar:hero-images": "node scripts/refresh-seeded-post-hero-images.cjs",
+    "seed:discovery:qatar:notifications": "node scripts/normalize-seeded-notifications.cjs",
     "backend:emulators": "firebase emulators:start --only firestore,functions",
     "test:backend-trust": "firebase emulators:exec --only firestore,functions --project spots-backend-test \"node --test tests/backend-trust.test.cjs\""
   },

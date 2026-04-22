@@ -1,7 +1,8 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { colors, spacing, typography } from '../../theme/designSystem';
+import { useLocalization } from '../../context/LocalizationContext';
 
 type InfoRowProps = {
   label: string;
@@ -10,10 +11,36 @@ type InfoRowProps = {
 };
 
 export function InfoRow({ label, value, subtle = false }: InfoRowProps) {
+  const { getOppositeTextAlign, getRowDirection, getTextAlign, isRTL } = useLocalization();
+  const isWeb = Platform.OS === 'web';
+
   return (
-    <View style={[styles.row, subtle && styles.rowSubtle]}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
+    <View
+      style={[
+        styles.row,
+        isWeb && styles.rowWeb,
+        subtle && styles.rowSubtle,
+        { flexDirection: getRowDirection() },
+      ]}
+    >
+      <Text
+        style={[
+          styles.label,
+          isWeb && styles.labelWeb,
+          { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+        ]}
+      >
+        {label}
+      </Text>
+      <Text
+        style={[
+          styles.value,
+          isWeb && styles.valueWeb,
+          { textAlign: getOppositeTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+        ]}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -24,26 +51,41 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
+    gap: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderBottomWidth: 0.75,
     borderBottomColor: colors.border,
   },
+  rowWeb: {
+    gap: spacing.xs + 2,
+    paddingVertical: spacing.xs,
+  },
   rowSubtle: {
-    borderBottomColor: colors.surfaceStrong,
+    borderBottomColor: colors.border,
   },
   label: {
     ...typography.label,
     color: colors.textSubtle,
     flexGrow: 1,
     flexShrink: 1,
-    minWidth: 120,
+    minWidth: 96,
+  },
+  labelWeb: {
+    minWidth: 80,
+    fontSize: 11,
+    lineHeight: 14,
   },
   value: {
     ...typography.body,
+    fontSize: 14,
+    lineHeight: 20,
     flexGrow: 1,
     flexShrink: 1,
-    minWidth: 180,
-    textAlign: 'right',
+    minWidth: 120,
+  },
+  valueWeb: {
+    fontSize: 12,
+    lineHeight: 16,
+    minWidth: 100,
   },
 });

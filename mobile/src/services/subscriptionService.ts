@@ -1,6 +1,7 @@
 import {
   createSubscription,
   getSubscriptionByUserId,
+  subscriptionExistsByUserId,
   subscribeToSubscriptionByUserId,
   updateSubscriptionByUserId,
 } from '../repositories/subscriptionRepository';
@@ -47,6 +48,14 @@ export async function createDefaultSubscription(userId: string) {
   };
 
   await createSubscription(subscription);
+}
+
+export async function ensureDefaultSubscription(userId: string) {
+  if (await subscriptionExistsByUserId(userId)) {
+    return;
+  }
+
+  await createDefaultSubscription(userId);
 }
 
 export async function loadUserSubscription(userId: string) {

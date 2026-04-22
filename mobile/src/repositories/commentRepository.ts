@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   onSnapshot,
@@ -67,6 +68,39 @@ export function subscribeToComments(
           .map((docSnap) => mapCommentDocument(postId, docSnap))
           .filter((comment): comment is PostComment => comment !== null)
       );
+    },
+    (error) => {
+      if (onError) {
+        onError(error);
+      }
+    }
+  );
+}
+
+export function subscribeToCommentCountsByPost(
+  onCounts: (counts: Record<string, number>) => void,
+  onError?: (error: Error) => void
+) {
+  return onSnapshot(
+    collectionGroup(db, COMMENTS_COLLECTION),
+    (snapshot) => {
+      const counts: Record<string, number> = {};
+
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.isHidden === true) {
+          return;
+        }
+
+        const postId = docSnap.ref.parent.parent?.id;
+        if (!postId) {
+          return;
+        }
+
+        counts[postId] = (counts[postId] ?? 0) + 1;
+      });
+
+      onCounts(counts);
     },
     (error) => {
       if (onError) {

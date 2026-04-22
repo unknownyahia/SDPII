@@ -78,7 +78,10 @@ module.exports = (_, argv = {}) => {
         directory: path.resolve(__dirname, 'web'),
       },
       client: {
-        overlay: true,
+        overlay: {
+          errors: true,
+          warnings: false,
+        },
       },
     },
     performance: {

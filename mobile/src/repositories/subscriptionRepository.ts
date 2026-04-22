@@ -78,6 +78,11 @@ export async function getSubscriptionByUserId(userId: string) {
   return mapSubscriptionDocument(snapshot, userId);
 }
 
+export async function subscriptionExistsByUserId(userId: string) {
+  const snapshot = await getDoc(getSubscriptionDocRef(userId));
+  return snapshot.exists();
+}
+
 export function subscribeToSubscriptionByUserId(
   userId: string,
   onSubscription: (subscription: UserSubscription) => void,

@@ -11,7 +11,12 @@ import { Card } from '../../components/ui/Card';
 import { PrimaryButton, SecondaryButton } from '../../components/ui/Button';
 import { ScreenContainer } from '../../components/ui/ScreenContainer';
 import { TextField } from '../../components/ui/TextField';
-import { AuthValidationError, loginUser } from '../../services/authService';
+import { useLocalization } from '../../context/LocalizationContext';
+import {
+  AuthValidationError,
+  getAuthErrorFeedback,
+  loginUser,
+} from '../../services/authService';
 import { colors, spacing, typography } from '../../theme/designSystem';
 import { showAlert } from '../../utils/showAlert';
 import type { AuthStackParamList } from '../../navigation/types';
@@ -19,6 +24,7 @@ import type { AuthStackParamList } from '../../navigation/types';
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export function LoginScreen({ navigation }: Props) {
+  const { getTextAlign, isRTL, t } = useLocalization();
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [loading, setLoading] = React.useState(false);
@@ -31,9 +37,10 @@ export function LoginScreen({ navigation }: Props) {
       setPassword('');
     } catch (error: any) {
       if (error instanceof AuthValidationError) {
-        showAlert('Missing data', error.message);
+        showAlert(t('auth.missingData'), error.message);
       } else {
-        showAlert('Login error', error?.message ?? 'Something went wrong');
+        const feedback = getAuthErrorFeedback(error, 'login');
+        showAlert(feedback.title, feedback.message);
       }
     } finally {
       setLoading(false);
@@ -44,34 +51,46 @@ export function LoginScreen({ navigation }: Props) {
     <ScreenContainer keyboardAvoiding>
       <View style={styles.content}>
         <AppHeader
-          eyebrow="Spots"
-          title="A calmer view of what's happening nearby."
-          subtitle="Sign in to share live updates, explore map activity, and manage your profile."
+          eyebrow={t('auth.login.eyebrow')}
+          title={t('auth.login.title')}
+          subtitle={t('auth.login.subtitle')}
         />
 
         <Card style={styles.card}>
-          <Text style={styles.cardTitle}>Welcome back</Text>
-          <Text style={styles.cardSubtitle}>
-            Enter your email and password to continue.
+          <Text
+            style={[
+              styles.cardTitle,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {t('auth.login.cardTitle')}
+          </Text>
+          <Text
+            style={[
+              styles.cardSubtitle,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {t('auth.login.cardSubtitle')}
           </Text>
 
           <View style={styles.form}>
             <TextField
-              label="Email"
+              label={t('auth.login.emailLabel')}
               autoCapitalize="none"
               autoComplete="email"
               autoCorrect={false}
               keyboardType="email-address"
-              placeholder="name@example.com"
+              placeholder={t('auth.login.emailPlaceholder')}
               value={email}
               onChangeText={setEmail}
             />
 
             <TextField
-              label="Password"
+              label={t('auth.login.passwordLabel')}
               autoCapitalize="none"
               autoComplete="current-password"
-              placeholder="Enter your password"
+              placeholder={t('auth.login.passwordPlaceholder')}
               secureTextEntry
               returnKeyType="done"
               value={password}
@@ -82,12 +101,12 @@ export function LoginScreen({ navigation }: Props) {
 
           <View style={styles.actions}>
             <PrimaryButton
-              label="Sign In"
+              label={t('auth.login.submit')}
               loading={loading}
               onPress={handleLogin}
             />
             <SecondaryButton
-              label="Create New Account"
+              label={t('auth.login.secondary')}
               disabled={loading}
               onPress={() => navigation.navigate('Register')}
             />

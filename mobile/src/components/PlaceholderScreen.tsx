@@ -29,7 +29,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.xxl,
-    backgroundColor: colors.background,
+    backgroundColor: colors.canvas,
   },
   title: {
     ...typography.title,

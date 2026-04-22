@@ -3,6 +3,8 @@ export type SpotCategory = 'fishing' | 'event' | 'sighting' | 'weather';
 export type SpotPost = {
   id: string;
   userId?: string;
+  placeId?: string | null;
+  heroImageUrl?: string | null;
   text: string;
   category?: SpotCategory;
   lat: number;
@@ -17,6 +19,7 @@ export type CreateSpotPostInput = {
   category: SpotCategory;
   lat: number;
   lng: number;
+  placeId?: string | null;
   locationName?: string | null;
 };
 

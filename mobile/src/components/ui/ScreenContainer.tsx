@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useLocalization } from '../../context/LocalizationContext';
 import { colors, spacing } from '../../theme/designSystem';
 
 type ScreenContainerProps = {
@@ -29,6 +30,7 @@ export function ScreenContainer({
   contentContainerStyle,
   style,
 }: ScreenContainerProps) {
+  const { isRTL } = useLocalization();
   const isWeb = Platform.OS === 'web';
   const webContentStyle = isWeb ? styles.webContent : null;
   const webPaddedStyle = isWeb && padded ? styles.webPadded : null;
@@ -74,7 +76,14 @@ export function ScreenContainer({
   );
 
   return (
-    <SafeAreaView style={[styles.screen, style]} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={[
+        styles.screen,
+        { direction: isRTL ? 'rtl' : 'ltr' },
+        style,
+      ]}
+      edges={['top', 'left', 'right']}
+    >
       {body}
     </SafeAreaView>
   );
@@ -83,7 +92,7 @@ export function ScreenContainer({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.canvas,
   },
   flex: {
     flex: 1,
@@ -97,12 +106,12 @@ const styles = StyleSheet.create({
   },
   webContent: {
     width: '100%',
-    maxWidth: 1280,
+    maxWidth: 1500,
     alignSelf: 'center',
   },
   webPadded: {
     paddingHorizontal: spacing.xxxl,
-    paddingTop: spacing.xxl,
-    paddingBottom: spacing.xxxl,
+    paddingTop: spacing.xl + 2,
+    paddingBottom: spacing.xxxl + 8,
   },
 });

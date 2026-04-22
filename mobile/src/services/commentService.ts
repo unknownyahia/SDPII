@@ -1,6 +1,7 @@
 import {
   createComment,
   deleteComment,
+  subscribeToCommentCountsByPost,
   subscribeToComments,
 } from '../repositories/commentRepository';
 import type { PostComment } from '../types/comment';
@@ -64,4 +65,11 @@ export function observeCommentsForPost(
   }
 
   return subscribeToComments(postId, onComments, onError);
+}
+
+export function observeCommentCountsByPost(
+  onCounts: (counts: Record<string, number>) => void,
+  onError?: (error: Error) => void
+) {
+  return subscribeToCommentCountsByPost(onCounts, onError);
 }

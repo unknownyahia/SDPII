@@ -6,6 +6,7 @@ const OpenAI = require("openai");
 admin.initializeApp();
 
 const db = admin.firestore();
+const DEFAULT_FUNCTION_SERVICE_ACCOUNT = "spots-42d51@appspot.gserviceaccount.com";
 
 function getOpenAIClient() {
   const apiKey = functions.config().openai?.key;
@@ -137,7 +138,9 @@ async function upsertLikeNotification(input) {
     });
 }
 
-exports.onPostCreated = functions.firestore
+exports.onPostCreated = functions.runWith({
+  serviceAccount: DEFAULT_FUNCTION_SERVICE_ACCOUNT,
+}).firestore
   .document("posts/{postId}")
   .onCreate(async (snapshot, context) => {
     const data = snapshot.data() || {};
@@ -157,7 +160,9 @@ exports.onPostCreated = functions.firestore
     return null;
   });
 
-exports.onCommentCreated = functions.firestore
+exports.onCommentCreated = functions.runWith({
+  serviceAccount: DEFAULT_FUNCTION_SERVICE_ACCOUNT,
+}).firestore
   .document("posts/{postId}/comments/{commentId}")
   .onCreate(async (snapshot, context) => {
     const data = snapshot.data() || {};
@@ -197,7 +202,9 @@ exports.onCommentCreated = functions.firestore
     return null;
   });
 
-exports.onReactionWritten = functions.firestore
+exports.onReactionWritten = functions.runWith({
+  serviceAccount: DEFAULT_FUNCTION_SERVICE_ACCOUNT,
+}).firestore
   .document("posts/{postId}/reactions/{userId}")
   .onWrite(async (change, context) => {
     if (!change.after.exists || change.before.exists) {
@@ -248,7 +255,9 @@ exports.onReactionWritten = functions.firestore
     return null;
   });
 
-exports.createPromotedEvent = functions.https.onCall(async (data, context) => {
+exports.createPromotedEvent = functions.runWith({
+  serviceAccount: DEFAULT_FUNCTION_SERVICE_ACCOUNT,
+}).https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError(
       "unauthenticated",
@@ -368,7 +377,9 @@ exports.createPromotedEvent = functions.https.onCall(async (data, context) => {
 });
 
 // Callable function to summarize posts in an area
-exports.summarizeArea = functions.https.onCall(async (data, context) => {
+exports.summarizeArea = functions.runWith({
+  serviceAccount: DEFAULT_FUNCTION_SERVICE_ACCOUNT,
+}).https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError(
       "unauthenticated",

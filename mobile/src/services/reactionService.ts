@@ -1,6 +1,7 @@
 import {
   removeLike,
   saveLike,
+  subscribeToLikeCountsByPost,
   subscribeToLikeUserIds,
 } from '../repositories/reactionRepository';
 
@@ -37,4 +38,11 @@ export function observeLikeUserIdsForPost(
   }
 
   return subscribeToLikeUserIds(postId, onUserIds, onError);
+}
+
+export function observeLikeCountsByPost(
+  onCounts: (counts: Record<string, number>) => void,
+  onError?: (error: Error) => void
+) {
+  return subscribeToLikeCountsByPost(onCounts, onError);
 }

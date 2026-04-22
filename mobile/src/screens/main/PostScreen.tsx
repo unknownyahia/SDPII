@@ -1,28 +1,26 @@
 import React from 'react';
 import {
-  Platform,
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
-  useWindowDimensions,
 } from 'react-native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 
-import { AppHeader } from '../../components/ui/AppHeader';
-import { PrimaryButton } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
-import { FilterChip } from '../../components/ui/Chip';
-import { InfoRow } from '../../components/ui/InfoRow';
-import { MetricTile } from '../../components/ui/MetricTile';
 import { ScreenContainer } from '../../components/ui/ScreenContainer';
-import { Section } from '../../components/ui/Section';
-import { TextField } from '../../components/ui/TextField';
 import { useAuth } from '../../context/AuthContext';
+import { useLocalization } from '../../context/LocalizationContext';
 import { subscribeToActivePromotedEventsCountByCreator } from '../../repositories/eventRepository';
 import {
-  createPromotedEvent,
-  EventPermissionError,
-  EventValidationError,
-} from '../../services/eventService';
+  getCurrentCoordinates,
+  getLocationDisplayName,
+  requestForegroundLocationPermission,
+} from '../../services/locationService';
 import { observeCurrentUserProfile } from '../../services/profileService';
 import {
   PostLocationPermissionError,
@@ -34,69 +32,317 @@ import {
   observeUserSubscription,
 } from '../../services/subscriptionService';
 import { colors, radius, spacing, typography } from '../../theme/designSystem';
+import {
+  getBlockedDataMessage,
+  getErrorMessage,
+  isDataAccessBlockedError,
+} from '../../utils/dataAccessError';
 import { showAlert } from '../../utils/showAlert';
+import type { MainTabParamList } from '../../navigation/types';
+import type { AppLanguage } from '../../types/profile';
 import type { SpotCategory } from '../../types/post';
 import type { UserSubscription } from '../../types/subscription';
 
-const CATEGORIES = [
-  { id: 'fishing', label: 'Fishing' },
-  { id: 'event', label: 'Event' },
-  { id: 'sighting', label: 'Sighting' },
-  { id: 'weather', label: 'Weather' },
-] as const satisfies readonly {
-  id: SpotCategory;
-  label: string;
-}[];
+type ComposeCategoryId =
+  | 'all'
+  | 'food'
+  | 'coffee'
+  | 'study'
+  | 'outdoors'
+  | 'events'
+  | 'more';
 
-function StatusBanner({
-  title,
-  body,
-  tone = 'neutral',
-}: {
+type ComposeCategory = {
+  id: ComposeCategoryId;
+  labelEn: string;
+  labelAr: string;
+  glyph: string;
+  backendCategory: SpotCategory;
+};
+
+type MediaPreview = {
+  id: string;
+  uri: string;
+  kind: 'image' | 'video';
+};
+
+type MobileCopy = {
   title: string;
-  body: string;
-  tone?: 'neutral' | 'warning' | 'success';
-}) {
+  subtitle: string;
+  sectionOne: string;
+  sectionTwo: string;
+  sectionThree: string;
+  sectionThreeSubtitle: string;
+  textPlaceholder: string;
+  locationPlaceholder: string;
+  nearMe: string;
+  quickAreas: string[];
+  locationLoading: string;
+  locationHint: string;
+  publish: string;
+  postingAccessTitle: string;
+  postingAccessSubtitle: string;
+  promoTitle: string;
+  promoBody: string;
+  learnMore: string;
+  addMore: string;
+  guestLabel: string;
+  retry: string;
+};
+
+const CHARACTER_LIMIT = 500;
+
+const MOBILE_AVATAR_FALLBACK_URI =
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80';
+
+const CATEGORIES: readonly ComposeCategory[] = [
+  {
+    id: 'all',
+    labelEn: 'All',
+    labelAr: 'الكل',
+    glyph: '',
+    backendCategory: 'sighting',
+  },
+  {
+    id: 'food',
+    labelEn: 'Food & Drinks',
+    labelAr: 'مأكولات ومشروبات',
+    glyph: '⌂',
+    backendCategory: 'sighting',
+  },
+  {
+    id: 'coffee',
+    labelEn: 'Coffee',
+    labelAr: 'قهوة',
+    glyph: '◌',
+    backendCategory: 'sighting',
+  },
+  {
+    id: 'study',
+    labelEn: 'Study & Work',
+    labelAr: 'دراسة وعمل',
+    glyph: '▣',
+    backendCategory: 'sighting',
+  },
+  {
+    id: 'outdoors',
+    labelEn: 'Outdoors',
+    labelAr: 'خارجي',
+    glyph: '△',
+    backendCategory: 'weather',
+  },
+  {
+    id: 'events',
+    labelEn: 'Events',
+    labelAr: 'فعاليات',
+    glyph: '✦',
+    backendCategory: 'event',
+  },
+  {
+    id: 'more',
+    labelEn: 'More',
+    labelAr: 'المزيد',
+    glyph: '⋯',
+    backendCategory: 'fishing',
+  },
+];
+
+const SAMPLE_MEDIA_LIBRARY: readonly MediaPreview[] = [
+  {
+    id: 'sample-waterfront',
+    uri: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=1200&q=80',
+    kind: 'image',
+  },
+  {
+    id: 'sample-coffee',
+    uri: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80',
+    kind: 'image',
+  },
+  {
+    id: 'sample-lawn',
+    uri: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80',
+    kind: 'image',
+  },
+  {
+    id: 'sample-boulevard',
+    uri: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1200&q=80',
+    kind: 'image',
+  },
+  {
+    id: 'sample-lounge',
+    uri: 'https://images.unsplash.com/photo-1552566626-52f8b828add9?auto=format&fit=crop&w=1200&q=80',
+    kind: 'image',
+  },
+] as const;
+
+function getMobileCopy(language: AppLanguage): MobileCopy {
+  if (language === 'ar') {
+    return {
+      title: 'أنشئ تحديثا محليا',
+      subtitle: 'شارك ما يحدث في مجتمعك وساعد الآخرين على اكتشافه.',
+      sectionOne: 'ما الذي يحدث؟',
+      sectionTwo: 'أين يحدث هذا؟',
+      sectionThree: 'أضف صورة أو فيديو (اختياري)',
+      sectionThreeSubtitle: 'اعرضه بشكل أفضل. الصور والفيديوهات تعزز التفاعل.',
+      textPlaceholder: 'اكتب ما يحدث الآن...',
+      locationPlaceholder: 'ابحث عن مكان أو منطقة أو معلم',
+      nearMe: 'بالقرب مني',
+      quickAreas: [
+        'بالقرب مني',
+        'لوسيل',
+        'اللؤلؤة',
+        'ويست باي',
+        'مشيرب',
+        'المدينة التعليمية',
+        'أسباير زون',
+      ],
+      locationLoading: 'جار تحديد منطقتك الحالية...',
+      locationHint: 'يمكنك اختيار منطقة سريعة أو البحث يدويا.',
+      publish: 'نشر التحديث المحلي',
+      postingAccessTitle: 'صلاحية النشر',
+      postingAccessSubtitle: 'المنشورات المحلية متاحة حسب دورك وخطتك الحالية.',
+      promoTitle: 'شارك مع المزيد من السكان',
+      promoBody: 'هل تريد الوصول لعدد أكبر؟ روّج تحديثك ليصل لآلاف المستخدمين في قطر.',
+      learnMore: 'اعرف المزيد',
+      addMore: 'إضافة',
+      guestLabel: 'ضيف',
+      retry: 'إعادة المحاولة',
+    };
+  }
+
+  return {
+    title: 'Create a local update',
+    subtitle: 'Share what\'s happening in your community and help others discover it.',
+    sectionOne: "What's happening?",
+    sectionTwo: 'Where is this happening?',
+    sectionThree: 'Add a photo or video (optional)',
+    sectionThreeSubtitle: 'Show it off! Photos and videos make updates stand out.',
+    textPlaceholder: "Describe what's happening...",
+    locationPlaceholder: 'Search for a place, area, or landmark',
+    nearMe: 'Near Me',
+    quickAreas: [
+      'Near Me',
+      'Lusail',
+      'The Pearl',
+      'West Bay',
+      'Msheireb',
+      'Education City',
+      'Aspire Zone',
+    ],
+    locationLoading: 'Fetching your current area...',
+    locationHint: 'Pick a quick area chip or type a custom location.',
+    publish: 'Publish Local Update',
+    postingAccessTitle: 'Posting access',
+    postingAccessSubtitle: 'Local posting is available based on your role and plan.',
+    promoTitle: 'Share with more locals',
+    promoBody:
+      'Want to reach more people? Promote your event or update to get discovered by thousands in Qatar.',
+    learnMore: 'Learn more',
+    addMore: 'Add more',
+    guestLabel: 'Guest',
+    retry: 'Retry',
+  };
+}
+
+function getQuickAreaGlyph(label: string, copy: MobileCopy) {
+  if (label === copy.nearMe) {
+    return '◎';
+  }
+
+  if (label.includes('Lusail') || label.includes('لوسيل')) {
+    return '⌂';
+  }
+
+  if (label.includes('Pearl') || label.includes('اللؤلؤة')) {
+    return '≈';
+  }
+
+  if (label.includes('West Bay') || label.includes('ويست باي')) {
+    return '▤';
+  }
+
+  if (label.includes('Education') || label.includes('التعليمية')) {
+    return '⌘';
+  }
+
+  return '⌁';
+}
+
+function BellGlyph() {
   return (
-    <View
-      style={[
-        styles.banner,
-        tone === 'warning' && styles.bannerWarning,
-        tone === 'success' && styles.bannerSuccess,
-      ]}
-    >
-      <Text style={styles.bannerTitle}>{title}</Text>
-      <Text style={styles.bannerBody}>{body}</Text>
+    <View style={styles.bellIcon}>
+      <View style={styles.bellStem} />
+      <View style={styles.bellBody} />
+      <View style={styles.bellClapper} />
+      <View style={styles.bellBase} />
+      <View style={styles.bellDot} />
+    </View>
+  );
+}
+
+function PinGlyph() {
+  return (
+    <View style={styles.pinGlyph}>
+      <View style={styles.pinGlyphHead}>
+        <View style={styles.pinGlyphCore} />
+      </View>
+      <View style={styles.pinGlyphTip} />
     </View>
   );
 }
 
 export function PostScreen() {
   const { user } = useAuth();
-  const { width } = useWindowDimensions();
-  const isWeb = Platform.OS === 'web';
-  const isWideLayout = isWeb && width >= 1040;
-  const useSplitTimeFields = isWeb && width >= 880;
+  const {
+    getPlanLevelLabel,
+    getRoleLabel,
+    getRowDirection,
+    getTextAlign,
+    isRTL,
+    language,
+    t,
+  } = useLocalization();
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
+
+  const copy = React.useMemo(() => getMobileCopy(language), [language]);
+  const avatarInitial = (user?.displayInfo || user?.email || 'S').trim().charAt(0).toUpperCase();
+
   const [userRole, setUserRole] = React.useState<string>('user');
   const [subscription, setSubscription] = React.useState<UserSubscription | null>(null);
   const [activePromotedEventsCount, setActivePromotedEventsCount] = React.useState(0);
+  const [setupIssue, setSetupIssue] = React.useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = React.useState(0);
+
+  const [composeCategory, setComposeCategory] = React.useState<ComposeCategoryId>('all');
+  const [backendCategory, setBackendCategory] = React.useState<SpotCategory>('sighting');
   const [postText, setPostText] = React.useState('');
-  const [category, setCategory] = React.useState<SpotCategory>('fishing');
   const [postLoading, setPostLoading] = React.useState(false);
-  const [locationName, setLocationName] = React.useState('');
   const [lastPostSuccess, setLastPostSuccess] = React.useState(false);
-  const [eventTitle, setEventTitle] = React.useState('');
-  const [eventDescription, setEventDescription] = React.useState('');
-  const [eventCategory, setEventCategory] = React.useState<SpotCategory>('event');
-  const [eventStartTime, setEventStartTime] = React.useState('');
-  const [eventEndTime, setEventEndTime] = React.useState('');
-  const [eventLoading, setEventLoading] = React.useState(false);
-  const [eventLocationName, setEventLocationName] = React.useState('');
-  const [lastEventSuccess, setLastEventSuccess] = React.useState(false);
+
+  const [locationName, setLocationName] = React.useState('');
+  const [locationQuery, setLocationQuery] = React.useState(language === 'ar' ? 'قطر' : 'Qatar');
+  const [selectedArea, setSelectedArea] = React.useState<string | null>(null);
+  const [capturePointPreview, setCapturePointPreview] = React.useState('');
+  const [locationPreviewLoading, setLocationPreviewLoading] = React.useState(false);
+
+  const [mediaItems, setMediaItems] = React.useState<MediaPreview[]>(
+    [...SAMPLE_MEDIA_LIBRARY].slice(0, 4)
+  );
+
+  const handleSetupIssue = React.useCallback((error: unknown, fallbackMessage: string) => {
+    const nextMessage = isDataAccessBlockedError(error)
+      ? getBlockedDataMessage('publishing access data')
+      : getErrorMessage(error, fallbackMessage);
+
+    setSetupIssue(current => current ?? nextMessage);
+  }, []);
 
   React.useEffect(() => {
     if (!user) {
       setUserRole('user');
+      setSubscription(null);
+      setActivePromotedEventsCount(0);
+      setSetupIssue(null);
       return;
     }
 
@@ -106,12 +352,12 @@ export function PostScreen() {
         setUserRole(profile.role);
       },
       error => {
-        showAlert('Post setup error', error?.message ?? 'Failed to load your role.');
+        handleSetupIssue(error, 'Failed to load your account role.');
       }
     );
 
     return unsubscribe;
-  }, [user]);
+  }, [handleSetupIssue, refreshToken, user]);
 
   React.useEffect(() => {
     const unsubscribe = observeUserSubscription(
@@ -120,15 +366,12 @@ export function PostScreen() {
         setSubscription(nextSubscription.userId ? nextSubscription : null);
       },
       error => {
-        showAlert(
-          'Subscription error',
-          error?.message ?? 'Failed to load your plan details.'
-        );
+        handleSetupIssue(error, 'Failed to load your plan details.');
       }
     );
 
     return unsubscribe;
-  }, [user?.id]);
+  }, [handleSetupIssue, refreshToken, user?.id]);
 
   React.useEffect(() => {
     if (!user?.id) {
@@ -138,339 +381,588 @@ export function PostScreen() {
 
     const unsubscribe = subscribeToActivePromotedEventsCountByCreator(
       user.id,
-      setActivePromotedEventsCount,
+      count => {
+        setActivePromotedEventsCount(count);
+      },
       error => {
-        showAlert(
-          'Event access error',
-          error?.message ?? 'Failed to load your active promoted event count.'
-        );
+        handleSetupIssue(error, 'Failed to load your active promoted event count.');
       }
     );
 
     return unsubscribe;
-  }, [user?.id]);
+  }, [handleSetupIssue, refreshToken, user?.id]);
 
-  const remainingChars = 280 - postText.length;
+  React.useEffect(() => {
+    setLastPostSuccess(false);
+  }, [postText]);
+
   const promotedEventAccess = getPromotedEventAccessState({
     userRole,
     subscription,
     activePromotedEventsCount,
   });
 
+  const accessRoleValue = user ? getRoleLabel(userRole) : copy.guestLabel;
+  const accessPlanValue = getPlanLevelLabel(subscription?.planLevel ?? 'free');
+  const quotaValue = `${activePromotedEventsCount}/${promotedEventAccess.maxActivePromotedEvents}`;
+
+  const locationPreviewLabel = React.useMemo(() => {
+    if (locationPreviewLoading) {
+      return copy.locationLoading;
+    }
+
+    if (capturePointPreview) {
+      return capturePointPreview;
+    }
+
+    if (locationName) {
+      return locationName;
+    }
+
+    return copy.locationHint;
+  }, [capturePointPreview, copy.locationHint, copy.locationLoading, locationName, locationPreviewLoading]);
+
+  const remainingCharacterLabel = `${postText.length}/${CHARACTER_LIMIT}`;
+
+  const handleRetrySetup = React.useCallback(() => {
+    setSetupIssue(null);
+    setRefreshToken(current => current + 1);
+  }, []);
+
+  const handleSelectCategory = React.useCallback((nextCategory: ComposeCategory) => {
+    setComposeCategory(nextCategory.id);
+    setBackendCategory(nextCategory.backendCategory);
+  }, []);
+
+  const handleQuickAreaSelect = React.useCallback(
+    async (areaLabel: string) => {
+      setLastPostSuccess(false);
+
+      if (areaLabel === copy.nearMe) {
+        setLocationPreviewLoading(true);
+
+        try {
+          const { status } = await requestForegroundLocationPermission();
+
+          if (status !== 'granted') {
+            throw new PostLocationPermissionError(
+              language === 'ar'
+                ? 'نحتاج صلاحية الموقع لالتقاط موقعك الحالي.'
+                : 'We need location permission to use your current area.'
+            );
+          }
+
+          const coords = await getCurrentCoordinates();
+          const nextLabel = await getLocationDisplayName(coords.latitude, coords.longitude);
+
+          setCapturePointPreview(nextLabel);
+          setLocationQuery(nextLabel);
+          setSelectedArea(copy.nearMe);
+        } catch (error: any) {
+          showAlert(
+            t('post.locationPermissionTitle'),
+            error?.message ?? copy.locationHint
+          );
+        } finally {
+          setLocationPreviewLoading(false);
+        }
+
+        return;
+      }
+
+      setSelectedArea(areaLabel);
+      setLocationQuery(areaLabel);
+      setCapturePointPreview('');
+    },
+    [copy.locationHint, copy.nearMe, language, t]
+  );
+
+  const handleAddMedia = React.useCallback(() => {
+    setMediaItems(current => {
+      if (current.length >= 6) {
+        return current;
+      }
+
+      const nextSample = SAMPLE_MEDIA_LIBRARY[current.length % SAMPLE_MEDIA_LIBRARY.length];
+
+      return [
+        ...current,
+        {
+          ...nextSample,
+          id: `${nextSample.id}-${Date.now()}`,
+        },
+      ];
+    });
+  }, []);
+
+  const handleRemoveMedia = React.useCallback((mediaId: string) => {
+    setMediaItems(current => current.filter(item => item.id !== mediaId));
+  }, []);
+
   const handleCreatePost = async () => {
     setPostLoading(true);
     setLastPostSuccess(false);
+
     try {
       const result = await publishCurrentLocationPost({
         userId: user?.id,
         text: postText,
-        category,
+        category: backendCategory,
       });
 
       setLocationName(result.locationName);
+      setCapturePointPreview(result.locationName);
+      if (!locationQuery.trim()) {
+        setLocationQuery(result.locationName);
+      }
       setPostText('');
       setLastPostSuccess(true);
-      showAlert('Post created', 'Your activity update has been saved with GPS.');
+      showAlert(t('post.createdAlertTitle'), t('post.createdAlertBody'));
     } catch (error: any) {
       if (error instanceof PostValidationError) {
-        const title = user ? 'Empty post' : 'Not logged in';
+        const title = user ? t('post.emptyPost') : t('post.notLoggedIn');
         showAlert(title, error.message);
       } else if (error instanceof PostLocationPermissionError) {
-        showAlert('Location permission denied', error.message);
+        showAlert(t('post.locationPermissionTitle'), error.message);
       } else {
-        showAlert('Create post error', error?.message ?? 'Something went wrong');
+        showAlert(t('post.createErrorTitle'), error?.message ?? 'Something went wrong');
       }
     } finally {
       setPostLoading(false);
     }
   };
 
-  const handleCreateEvent = async () => {
-    setEventLoading(true);
-    setLastEventSuccess(false);
-    try {
-      const result = await createPromotedEvent({
-        userId: user?.id,
-        userRole,
-        subscription,
-        title: eventTitle,
-        description: eventDescription,
-        category: eventCategory,
-        startTime: eventStartTime,
-        endTime: eventEndTime,
-      });
-
-      setEventLocationName(result.locationName);
-      setEventTitle('');
-      setEventDescription('');
-      setEventStartTime('');
-      setEventEndTime('');
-      setLastEventSuccess(true);
-      showAlert('Event created', 'Your promoted event was saved successfully.');
-    } catch (error: any) {
-      if (error instanceof EventValidationError) {
-        showAlert('Event validation', error.message);
-      } else if (error instanceof EventPermissionError) {
-        showAlert('Location permission denied', error.message);
-      } else {
-        showAlert('Create event error', error?.message ?? 'Something went wrong');
-      }
-    } finally {
-      setEventLoading(false);
-    }
-  };
-
   return (
     <ScreenContainer
       scroll
-      contentContainerStyle={[styles.content, isWideLayout && styles.contentWide]}
+      padded={false}
+      style={styles.screen}
+      contentContainerStyle={styles.content}
     >
-      <AppHeader
-        eyebrow="Post"
-        title="Create a cleaner update flow."
-        subtitle="Share a location-based post, and if you’re an organization account, publish promoted events from the same polished workspace."
-      />
+      <View style={styles.shell}>
+        <View style={[styles.headerRow, { flexDirection: getRowDirection() }]}>
+          <Text
+            style={[styles.wordmark, { writingDirection: isRTL ? 'rtl' : 'ltr' }]}
+          >
+            Spots
+          </Text>
 
-      <View style={[styles.workspace, isWideLayout && styles.workspaceWide]}>
-        <View
-          style={[
-            styles.workspacePrimaryColumn,
-            isWideLayout && styles.workspacePrimaryColumnWide,
-          ]}
-        >
-          <Card style={styles.postCard}>
-            <Section
-              title="Create a spot update"
-              subtitle="Short, local, useful updates work best here."
+          <View style={[styles.headerActions, { flexDirection: getRowDirection() }]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate('Profile')}
+              style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionPressed]}
             >
-              {isWeb ? (
-                <StatusBanner
-                  title="Browser location will be requested when you post"
-                  body="Allow browser location access when prompted. Outside localhost, web geolocation requires HTTPS."
-                />
-              ) : null}
+              <BellGlyph />
+            </Pressable>
 
-              {!user ? (
-                <StatusBanner
-                  title="Sign-in required"
-                  body="You need to be signed in before creating a location-based post."
-                  tone="warning"
-                />
-              ) : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate('Explore')}
+              style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionPressed]}
+            >
+              <Text style={styles.heartGlyph}>♡</Text>
+            </Pressable>
 
-              <View style={styles.inlineSection}>
-                <Text style={styles.inlineLabel}>Category</Text>
-                <View style={styles.chipRow}>
-                  {CATEGORIES.map(item => (
-                    <FilterChip
-                      key={item.id}
-                      label={item.label}
-                      active={category === item.id}
-                      onPress={() => setCategory(item.id)}
-                    />
-                  ))}
-                </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate('Profile')}
+              style={({ pressed }) => [pressed && styles.headerActionPressed]}
+            >
+              <View style={styles.avatarFrame}>
+                <Image source={{ uri: MOBILE_AVATAR_FALLBACK_URI }} style={styles.avatarImage} />
+                {!user ? <Text style={styles.avatarFallback}>{avatarInitial || 'S'}</Text> : null}
               </View>
-
-              <TextField
-                label="Post text"
-                placeholder="Describe conditions, crowds, weather, or what you found..."
-                multiline
-                value={postText}
-                onChangeText={setPostText}
-                maxLength={280}
-                style={styles.postInput}
-                helperText={`${remainingChars} characters left`}
-              />
-
-              {locationName ? (
-                <InfoRow label="Last known location" value={locationName} subtle />
-              ) : (
-                <InfoRow
-                  label="Location"
-                  value={
-                    isWeb
-                      ? 'Will be requested from your browser when you post'
-                      : 'Will be requested when you post'
-                  }
-                  subtle
-                />
-              )}
-
-              {lastPostSuccess ? (
-                <StatusBanner
-                  title="Post published"
-                  body="Your most recent post was created successfully."
-                  tone="success"
-                />
-              ) : null}
-
-              <PrimaryButton
-                label="Post With GPS"
-                loading={postLoading}
-                disabled={!user}
-                onPress={handleCreatePost}
-              />
-            </Section>
-          </Card>
+            </Pressable>
+          </View>
         </View>
 
-        <View
-          style={[
-            styles.workspaceSecondaryColumn,
-            isWideLayout && styles.workspaceSecondaryColumnWide,
-          ]}
-        >
-          {userRole === 'organization' ? (
-            <Card>
-              <Section
-                title="Promoted event studio"
-                subtitle="Create promoted events with clearer plan visibility and stronger event-specific hierarchy."
-              >
-                <View style={styles.metricRow}>
-                  <MetricTile
-                    label="Plan"
-                    value={(subscription?.planLevel ?? 'free').replace('_', ' ')}
-                    accent
-                  />
-                  <MetricTile
-                    label="Status"
-                    value={subscription?.status ?? 'inactive'}
-                  />
-                  <MetricTile
-                    label="Active"
-                    value={`${activePromotedEventsCount}/${promotedEventAccess.maxActivePromotedEvents}`}
-                  />
-                </View>
+        <View style={[styles.introRow, { flexDirection: getRowDirection() }]}>
+          <View style={styles.introCopy}>
+            <Text
+              style={[
+                styles.introTitle,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {copy.title}
+            </Text>
+            <Text
+              style={[
+                styles.introSubtitle,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {copy.subtitle}
+            </Text>
+          </View>
 
-                <InfoRow
-                  label="Analytics access"
-                  value={
-                    promotedEventAccess.analyticsEnabled
-                      ? 'Premium analytics available'
-                      : 'Upgrade to organization_premium'
-                  }
-                />
+          <View style={styles.introArtWrap}>
+            <View style={styles.introArtBackdrop} />
+            <View style={styles.introArtCamera}>
+              <View style={styles.introArtLensOuter}>
+                <View style={styles.introArtLensInner} />
+              </View>
+            </View>
+            <View style={styles.introArtPin}>
+              <View style={styles.introArtPinCore} />
+            </View>
+          </View>
+        </View>
 
-                {!promotedEventAccess.allowed ? (
-                  <StatusBanner
-                    title="Plan restriction"
-                    body={promotedEventAccess.message}
-                    tone="warning"
-                  />
-                ) : null}
+        {setupIssue ? (
+          <View style={styles.slimBanner}>
+            <Text
+              style={[
+                styles.slimBannerText,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {setupIssue}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleRetrySetup}
+              style={({ pressed }) => [styles.slimBannerAction, pressed && styles.headerActionPressed]}
+            >
+              <Text style={styles.slimBannerActionLabel}>{copy.retry}</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
-                <TextField
-                  label="Event title"
-                  placeholder="Event title"
-                  value={eventTitle}
-                  onChangeText={setEventTitle}
-                />
+        <View style={styles.sectionCard}>
+          <View style={[styles.sectionHeader, { flexDirection: getRowDirection() }]}>
+            <View style={styles.sectionBadge}>
+              <Text style={styles.sectionBadgeLabel}>1</Text>
+            </View>
+            <Text
+              style={[
+                styles.sectionTitle,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {copy.sectionOne}
+            </Text>
+          </View>
 
-                <TextField
-                  label="Event description"
-                  placeholder="Describe the event, value, timing, and any important details"
-                  value={eventDescription}
-                  onChangeText={setEventDescription}
-                  multiline
-                  style={styles.eventDescription}
-                />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.categoryRail}
+            contentContainerStyle={[styles.categoryRailContent, { flexDirection: getRowDirection() }]}
+          >
+            {CATEGORIES.map(item => {
+              const active = composeCategory === item.id;
 
-                <View style={styles.inlineSection}>
-                  <Text style={styles.inlineLabel}>Event category</Text>
-                  <View style={styles.chipRow}>
-                    {CATEGORIES.map(item => (
-                      <FilterChip
-                        key={`event-${item.id}`}
-                        label={item.label}
-                        active={eventCategory === item.id}
-                        onPress={() => setEventCategory(item.id)}
-                      />
-                    ))}
-                  </View>
-                </View>
-
-                <View
-                  style={[
-                    styles.timeGrid,
-                    useSplitTimeFields && styles.timeGridWide,
+              return (
+                <Pressable
+                  key={item.id}
+                  accessibilityRole="button"
+                  onPress={() => handleSelectCategory(item)}
+                  style={({ pressed }) => [
+                    styles.categoryChip,
+                    active && styles.categoryChipActive,
+                    pressed && styles.categoryChipPressed,
                   ]}
                 >
-                  <View style={styles.timeField}>
-                    <TextField
-                      label="Start time"
-                      placeholder={isWeb ? '2026-04-10T18:00' : '2026-04-10T18:00:00Z'}
-                      value={eventStartTime}
-                      onChangeText={setEventStartTime}
-                      helperText={
-                        isWeb
-                          ? 'Uses your browser local time. Example: 2026-04-10T18:00'
-                          : undefined
-                      }
-                      webType="datetime-local"
-                    />
+                  {item.glyph ? (
+                    <Text style={[styles.categoryChipGlyph, active && styles.categoryChipGlyphActive]}>
+                      {item.glyph}
+                    </Text>
+                  ) : null}
+                  <Text
+                    style={[
+                      styles.categoryChipLabel,
+                      active && styles.categoryChipLabelActive,
+                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {language === 'ar' ? item.labelAr : item.labelEn}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.textAreaWrap}>
+            <TextInput
+              value={postText}
+              onChangeText={setPostText}
+              placeholder={copy.textPlaceholder}
+              placeholderTextColor={colors.textSubtle}
+              multiline
+              maxLength={CHARACTER_LIMIT}
+              style={[
+                styles.textArea,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            />
+            <Text style={styles.textAreaCount}>{remainingCharacterLabel}</Text>
+          </View>
+        </View>
+
+        <View style={styles.sectionCard}>
+          <View style={[styles.sectionHeader, { flexDirection: getRowDirection() }]}>
+            <View style={styles.sectionBadge}>
+              <Text style={styles.sectionBadgeLabel}>2</Text>
+            </View>
+            <Text
+              style={[
+                styles.sectionTitle,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {copy.sectionTwo}
+            </Text>
+          </View>
+
+          <View style={styles.locationSearchRow}>
+            <PinGlyph />
+            <TextInput
+              value={locationQuery}
+              onChangeText={setLocationQuery}
+              placeholder={copy.locationPlaceholder}
+              placeholderTextColor={colors.textSubtle}
+              style={[
+                styles.locationInput,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            />
+            <Text style={styles.locationChevron}>{isRTL ? '‹' : '›'}</Text>
+          </View>
+
+          <View style={[styles.quickAreaWrap, { flexDirection: getRowDirection() }]}>
+            {copy.quickAreas.map(areaLabel => {
+              const active = selectedArea === areaLabel;
+              const glyph = getQuickAreaGlyph(areaLabel, copy);
+
+              return (
+                <Pressable
+                  key={areaLabel}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    void handleQuickAreaSelect(areaLabel);
+                  }}
+                  style={({ pressed }) => [
+                    styles.quickAreaChip,
+                    active && styles.quickAreaChipActive,
+                    pressed && styles.categoryChipPressed,
+                  ]}
+                >
+                  <Text style={[styles.quickAreaGlyph, active && styles.quickAreaGlyphActive]}>{glyph}</Text>
+                  <Text
+                    style={[
+                      styles.quickAreaLabel,
+                      active && styles.quickAreaLabelActive,
+                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {areaLabel}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text
+            style={[
+              styles.locationHint,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {locationPreviewLabel}
+          </Text>
+        </View>
+
+        <View style={styles.sectionCard}>
+          <View style={[styles.sectionHeader, { flexDirection: getRowDirection() }]}>
+            <View style={styles.sectionBadge}>
+              <Text style={styles.sectionBadgeLabel}>3</Text>
+            </View>
+            <Text
+              style={[
+                styles.sectionTitle,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {copy.sectionThree}
+            </Text>
+          </View>
+
+          <Text
+            style={[
+              styles.sectionSubtitle,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {copy.sectionThreeSubtitle}
+          </Text>
+
+          <View style={[styles.mediaRow, { flexDirection: getRowDirection() }]}>
+            {mediaItems.slice(0, 4).map(item => (
+              <View key={item.id} style={styles.mediaThumbWrap}>
+                <Image source={{ uri: item.uri }} style={styles.mediaThumb} />
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => handleRemoveMedia(item.id)}
+                  style={({ pressed }) => [
+                    styles.mediaRemoveButton,
+                    pressed && styles.categoryChipPressed,
+                  ]}
+                >
+                  <Text style={styles.mediaRemoveLabel}>x</Text>
+                </Pressable>
+                {item.kind === 'video' ? (
+                  <View style={styles.mediaTypeBadge}>
+                    <Text style={styles.mediaTypeBadgeText}>MP4</Text>
                   </View>
-
-                  <View style={styles.timeField}>
-                    <TextField
-                      label="End time"
-                      placeholder={isWeb ? '2026-04-10T20:00' : '2026-04-10T20:00:00Z'}
-                      value={eventEndTime}
-                      onChangeText={setEventEndTime}
-                      onSubmitEditing={handleCreateEvent}
-                      helperText={
-                        isWeb
-                          ? 'Uses your browser local time. Example: 2026-04-10T20:00'
-                          : undefined
-                      }
-                      webType="datetime-local"
-                    />
-                  </View>
-                </View>
-
-                {eventLocationName ? (
-                  <InfoRow label="Event location" value={eventLocationName} subtle />
-                ) : (
-                  <InfoRow
-                    label="Location"
-                    value={
-                      isWeb
-                        ? 'Will be captured from your browser when the event is created'
-                        : 'Will be captured when the event is created'
-                    }
-                    subtle
-                  />
-                )}
-
-                {lastEventSuccess ? (
-                  <StatusBanner
-                    title="Event published"
-                    body="Your promoted event was created successfully."
-                    tone="success"
-                  />
                 ) : null}
+              </View>
+            ))}
 
-                <PrimaryButton
-                  label="Create Promoted Event"
-                  loading={eventLoading}
-                  disabled={!promotedEventAccess.allowed}
-                  onPress={handleCreateEvent}
-                />
-              </Section>
-            </Card>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleAddMedia}
+              style={({ pressed }) => [styles.addMoreTile, pressed && styles.categoryChipPressed]}
+            >
+              <Text style={styles.addMorePlus}>+</Text>
+              <Text style={styles.addMoreLabel}>{copy.addMore}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
+          disabled={!user || postLoading}
+          onPress={handleCreatePost}
+          style={({ pressed }) => [
+            styles.publishButton,
+            (!user || postLoading) && styles.publishButtonDisabled,
+            pressed && user && !postLoading && styles.publishButtonPressed,
+          ]}
+        >
+          {postLoading ? (
+            <ActivityIndicator color={colors.surface} />
           ) : (
-            <Card style={styles.secondaryInfoCard} muted>
-              <Section
-                title="Organization events"
-                subtitle="Promoted event creation is reserved for organization accounts with an eligible plan."
-              >
-                <StatusBanner
-                  title="Not enabled on this account"
-                  body="The event creation workspace appears here automatically for organization users with the correct role."
-                />
-              </Section>
-            </Card>
+            <Text style={[styles.publishButtonLabel, { writingDirection: isRTL ? 'rtl' : 'ltr' }]}>
+              {copy.publish}
+            </Text>
           )}
+        </Pressable>
+
+        {lastPostSuccess ? (
+          <View style={[styles.slimBanner, styles.slimBannerSuccess]}>
+            <Text
+              style={[
+                styles.slimBannerText,
+                styles.slimBannerTextSuccess,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {t('post.successBody')}
+            </Text>
+          </View>
+        ) : null}
+
+        {!user ? (
+          <View style={styles.signInHintWrap}>
+            <Text
+              style={[
+                styles.signInHint,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {t('post.signInRequiredBody')}
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={styles.supportCard}>
+          <Text
+            style={[
+              styles.supportCardTitle,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {copy.postingAccessTitle}
+          </Text>
+          <Text
+            style={[
+              styles.supportCardSubtitle,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {copy.postingAccessSubtitle}
+          </Text>
+
+          <View style={[styles.metricsRow, { flexDirection: getRowDirection() }]}>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>{t('post.roleMetric')}</Text>
+              <Text style={styles.metricValue}>{accessRoleValue}</Text>
+            </View>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>{t('post.planMetric')}</Text>
+              <Text style={styles.metricValue}>{accessPlanValue}</Text>
+            </View>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricLabel}>{t('post.eventQuotaMetric')}</Text>
+              <Text style={styles.metricValue}>{quotaValue}</Text>
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.accessNotice,
+              promotedEventAccess.allowed && styles.accessNoticePositive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.accessNoticeTitle,
+                promotedEventAccess.allowed && styles.accessNoticeTitlePositive,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {promotedEventAccess.allowed
+                ? t('post.eventAccessReadyTitle')
+                : t('post.eventAccessBlockedTitle')}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.promoCard}>
+          <View style={[styles.promoRow, { flexDirection: getRowDirection() }]}>
+            <View style={styles.promoIconWrap}>
+              <Text style={styles.promoIconGlyph}>⌁</Text>
+            </View>
+
+            <View style={styles.promoCopy}>
+              <Text
+                style={[
+                  styles.promoTitle,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {copy.promoTitle}
+              </Text>
+              <Text
+                style={[
+                  styles.promoBody,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {copy.promoBody}
+              </Text>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate('Explore')}
+              style={({ pressed }) => [styles.promoLinkButton, pressed && styles.headerActionPressed]}
+            >
+              <Text style={styles.promoLinkLabel}>{copy.learnMore}</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </ScreenContainer>
@@ -478,95 +970,696 @@ export function PostScreen() {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#F4F4F4',
+  },
   content: {
-    paddingBottom: spacing.xxxl,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md + 2,
+    paddingBottom: spacing.xxxl + 18,
   },
-  contentWide: {
-    paddingBottom: spacing.xxxl + spacing.md,
-  },
-  workspace: {
-    gap: spacing.lg,
-  },
-  workspaceWide: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  workspacePrimaryColumn: {
-    gap: spacing.lg,
-  },
-  workspacePrimaryColumnWide: {
-    flex: 1.15,
-    minWidth: 0,
-  },
-  workspaceSecondaryColumn: {
-    gap: spacing.lg,
-  },
-  workspaceSecondaryColumnWide: {
-    flex: 0.95,
-    minWidth: 340,
-    maxWidth: 460,
-  },
-  postCard: {
-    minHeight: 100,
-  },
-  secondaryInfoCard: {
-    minHeight: 260,
-  },
-  inlineSection: {
-    gap: spacing.sm,
-  },
-  inlineLabel: {
-    ...typography.label,
-    color: colors.textSubtle,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  postInput: {
-    minHeight: 140,
-    textAlignVertical: 'top',
-  },
-  eventDescription: {
-    minHeight: 120,
-    textAlignVertical: 'top',
-  },
-  timeGrid: {
+  shell: {
     gap: spacing.md,
   },
-  timeGridWide: {
-    flexDirection: 'row',
+  headerRow: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 52,
   },
-  timeField: {
+  wordmark: {
+    ...typography.title,
+    color: colors.primary,
+    fontSize: 24,
+    lineHeight: 30,
+    letterSpacing: -0.45,
+  },
+  headerActions: {
+    alignItems: 'center',
+    gap: spacing.sm + 4,
+  },
+  headerActionButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerActionPressed: {
+    opacity: 0.82,
+  },
+  heartGlyph: {
+    ...typography.title,
+    color: colors.textMuted,
+    fontSize: 24,
+    lineHeight: 28,
+  },
+  avatarFrame: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#D8D8D8',
+    overflow: 'hidden',
+    backgroundColor: '#F2F2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarFallback: {
+    ...typography.button,
+    color: colors.textMuted,
+    position: 'absolute',
+  },
+  bellIcon: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  bellStem: {
+    position: 'absolute',
+    top: 1,
+    width: 5,
+    height: 2,
+    borderRadius: 2,
+    backgroundColor: colors.textMuted,
+  },
+  bellBody: {
+    position: 'absolute',
+    top: 3,
+    width: 11,
+    height: 10,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
+    borderWidth: 1.3,
+    borderColor: colors.textMuted,
+    backgroundColor: '#F8F8F8',
+  },
+  bellClapper: {
+    position: 'absolute',
+    bottom: 2,
+    width: 4,
+    height: 4,
+    borderRadius: 4,
+    backgroundColor: colors.textMuted,
+  },
+  bellBase: {
+    position: 'absolute',
+    bottom: 1,
+    width: 10,
+    height: 1.5,
+    borderRadius: 2,
+    backgroundColor: colors.textMuted,
+  },
+  bellDot: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  introRow: {
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  introCopy: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  introTitle: {
+    ...typography.title,
+    fontSize: 22,
+    lineHeight: 30,
+    letterSpacing: -0.7,
+    color: colors.text,
+  },
+  introSubtitle: {
+    ...typography.bodyMuted,
+    fontSize: 13,
+    lineHeight: 20,
+    color: colors.textMuted,
+    maxWidth: 220,
+  },
+  introArtWrap: {
+    width: 140,
+    height: 112,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  introArtBackdrop: {
+    position: 'absolute',
+    inset: 0,
+    borderRadius: 22,
+    backgroundColor: '#FCEAE7',
+  },
+  introArtCamera: {
+    width: 70,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#F05747',
+    borderWidth: 1,
+    borderColor: '#E44739',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 12,
+    bottom: 8,
+    transform: [{ rotate: '-9deg' }],
+  },
+  introArtLensOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#FFEFED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#231B18',
+  },
+  introArtLensInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  introArtPin: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FF755F',
+    position: 'absolute',
+    left: 14,
+    top: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  introArtPinCore: {
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#FFEFED',
+  },
+  slimBanner: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#F2D7D1',
+    backgroundColor: '#FFF5F2',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  slimBannerSuccess: {
+    borderColor: '#D2EADF',
+    backgroundColor: '#F3FAF6',
+  },
+  slimBannerText: {
+    ...typography.caption,
+    color: '#925F57',
     flex: 1,
   },
-  metricRow: {
+  slimBannerTextSuccess: {
+    color: '#2E7B57',
+  },
+  slimBannerAction: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: '#EBC4BB',
+    paddingHorizontal: spacing.sm + 3,
+    paddingVertical: spacing.xs + 1,
+  },
+  slimBannerActionLabel: {
+    ...typography.button,
+    fontSize: 12,
+    lineHeight: 15,
+    color: colors.primary,
+  },
+  sectionCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: '#E7E2DC',
+    backgroundColor: '#F9F9F9',
+    padding: spacing.md + 2,
+    gap: spacing.sm + 3,
+    shadowColor: '#291B14',
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+  },
+  sectionHeader: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  sectionBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionBadgeLabel: {
+    ...typography.button,
+    color: colors.surface,
+    fontSize: 17,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  sectionTitle: {
+    ...typography.sectionTitle,
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    letterSpacing: -0.35,
+    flex: 1,
+  },
+  sectionSubtitle: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  categoryRail: {
+    marginHorizontal: -2,
+  },
+  categoryRailContent: {
+    gap: spacing.sm,
+    paddingHorizontal: 2,
+  },
+  categoryChip: {
+    minHeight: 38,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: '#D9D9D9',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: spacing.md,
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  categoryChipActive: {
+    borderColor: '#F27B69',
+    backgroundColor: '#FFF2EF',
+  },
+  categoryChipPressed: {
+    opacity: 0.78,
+  },
+  categoryChipGlyph: {
+    ...typography.caption,
+    fontSize: 13,
+    lineHeight: 16,
+    color: colors.textMuted,
+  },
+  categoryChipGlyphActive: {
+    color: colors.primary,
+  },
+  categoryChipLabel: {
+    ...typography.caption,
+    fontSize: 14,
+    lineHeight: 17,
+    color: '#4D4D4D',
+    fontWeight: '500',
+  },
+  categoryChipLabelActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  textAreaWrap: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#DEDEDE',
+    backgroundColor: '#FBFBFB',
+    minHeight: 190,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  textArea: {
+    ...typography.body,
+    color: colors.text,
+    minHeight: 148,
+    textAlignVertical: 'top',
+    padding: 0,
+    margin: 0,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  textAreaCount: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    fontSize: 12,
+    lineHeight: 16,
+    alignSelf: 'flex-end',
+  },
+  locationSearchRow: {
+    minHeight: 58,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#DEDEDE',
+    backgroundColor: '#FBFBFB',
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  pinGlyph: {
+    width: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinGlyphHead: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.8,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF3F1',
+  },
+  pinGlyphCore: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
+  },
+  pinGlyphTip: {
+    width: 2,
+    height: 5,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
+    marginTop: 1,
+  },
+  locationInput: {
+    ...typography.body,
+    color: colors.text,
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    padding: 0,
+    margin: 0,
+  },
+  locationChevron: {
+    ...typography.title,
+    color: colors.textSubtle,
+    fontSize: 18,
+    lineHeight: 20,
+  },
+  quickAreaWrap: {
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  banner: {
-    borderRadius: radius.lg,
+  quickAreaChip: {
+    minHeight: 38,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
-    padding: spacing.lg,
+    borderColor: '#D9D9D9',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.xs,
   },
-  bannerWarning: {
-    backgroundColor: colors.warningSoft,
-    borderColor: '#F1DEB3',
+  quickAreaChipActive: {
+    borderColor: '#E9A292',
+    backgroundColor: '#FFF4F1',
   },
-  bannerSuccess: {
-    backgroundColor: colors.successSoft,
-    borderColor: '#BDE4CF',
+  quickAreaGlyph: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 16,
   },
-  bannerTitle: {
+  quickAreaGlyphActive: {
+    color: colors.primary,
+  },
+  quickAreaLabel: {
+    ...typography.caption,
+    color: '#4D4D4D',
+    fontSize: 14,
+    lineHeight: 17,
+    fontWeight: '500',
+  },
+  quickAreaLabelActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  locationHint: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    fontSize: 13,
+    lineHeight: 17,
+  },
+  mediaRow: {
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  mediaThumbWrap: {
+    width: 90,
+    height: 90,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    backgroundColor: '#EFEFEF',
+    position: 'relative',
+  },
+  mediaThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  mediaRemoveButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    borderWidth: 1,
+    borderColor: '#D7D7D7',
+  },
+  mediaRemoveLabel: {
+    ...typography.button,
+    color: '#4A4A4A',
+    fontSize: 16,
+    lineHeight: 18,
+  },
+  mediaTypeBadge: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(32, 27, 22, 0.72)',
+    paddingHorizontal: spacing.xs + 3,
+    paddingVertical: 2,
+  },
+  mediaTypeBadgeText: {
+    ...typography.caption,
+    color: '#FFFFFF',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '600',
+  },
+  addMoreTile: {
+    width: 90,
+    height: 90,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#D3D3D3',
+    borderStyle: 'dashed',
+    backgroundColor: '#FBFBFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  addMorePlus: {
+    ...typography.title,
+    color: '#6F6F6F',
+    fontSize: 25,
+    lineHeight: 28,
+  },
+  addMoreLabel: {
+    ...typography.caption,
+    color: '#6B6B6B',
+    fontSize: 14,
+    lineHeight: 16,
+  },
+  publishButton: {
+    minHeight: 60,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.primaryPressed,
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  publishButtonPressed: {
+    backgroundColor: colors.primaryPressed,
+  },
+  publishButtonDisabled: {
+    opacity: 0.6,
+  },
+  publishButtonLabel: {
+    ...typography.button,
+    color: colors.surface,
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  signInHintWrap: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#EBDACB',
+    backgroundColor: '#FFF8EF',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 1,
+  },
+  signInHint: {
+    ...typography.caption,
+    color: '#856142',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  supportCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: '#E6E1DB',
+    backgroundColor: '#F9F9F9',
+    padding: spacing.md + 2,
+    gap: spacing.sm,
+  },
+  supportCardTitle: {
+    ...typography.sectionTitle,
+    color: colors.text,
+    fontSize: 20,
+    lineHeight: 25,
+  },
+  supportCardSubtitle: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 17,
+  },
+  metricsRow: {
+    gap: spacing.sm,
+  },
+  metricCard: {
+    flex: 1,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#E5DED6',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.sm,
+    gap: 2,
+  },
+  metricLabel: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
+  metricValue: {
     ...typography.button,
     color: colors.text,
+    fontSize: 14,
+    lineHeight: 18,
   },
-  bannerBody: {
-    ...typography.bodyMuted,
+  accessNotice: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#ECD6CF',
+    backgroundColor: '#FFF4F0',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  accessNoticePositive: {
+    borderColor: '#CDE6D9',
+    backgroundColor: '#F1FAF5',
+  },
+  accessNoticeTitle: {
+    ...typography.caption,
+    color: '#915B52',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  accessNoticeTitlePositive: {
+    color: '#2E7B57',
+  },
+  promoCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: '#E8E1DA',
+    backgroundColor: '#FBF9F7',
+    paddingHorizontal: spacing.md + 2,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.md,
+  },
+  promoRow: {
+    alignItems: 'center',
+    gap: spacing.sm + 2,
+  },
+  promoIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FCEBE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  promoIconGlyph: {
+    ...typography.title,
+    color: colors.primary,
+    fontSize: 20,
+    lineHeight: 22,
+  },
+  promoCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  promoTitle: {
+    ...typography.button,
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  promoBody: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  promoLinkButton: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  promoLinkLabel: {
+    ...typography.button,
+    color: colors.primary,
+    fontSize: 15,
+    lineHeight: 19,
   },
 });

@@ -1,6 +1,7 @@
 import {
   createProfile,
   getProfileById,
+  profileExistsById,
   subscribeToProfileById,
   updateProfileById,
 } from '../repositories/profileRepository';
@@ -54,6 +55,14 @@ export async function createDefaultProfile(input: CreateDefaultProfileInput) {
   };
 
   await createProfile(profile);
+}
+
+export async function ensureDefaultProfile(input: CreateDefaultProfileInput) {
+  if (await profileExistsById(input.id)) {
+    return;
+  }
+
+  await createDefaultProfile(input);
 }
 
 export async function loadCurrentUserProfile(

@@ -1,26 +1,28 @@
 import { Platform, type TextStyle, type ViewStyle } from 'react-native';
 
 export const colors = {
-  background: '#F4F7FB',
-  backgroundAccent: '#EAF0F7',
-  surface: '#FFFFFF',
-  surfaceMuted: '#F8FAFC',
-  surfaceStrong: '#ECF2F8',
-  border: '#D8E2EE',
-  borderStrong: '#C4D0DD',
-  text: '#142033',
-  textMuted: '#617086',
-  textSubtle: '#7E8CA1',
-  primary: '#1C6DD0',
-  primaryPressed: '#1559AA',
-  primarySoft: '#E4EEFB',
-  success: '#1F8F63',
-  successSoft: '#E7F6EF',
-  warning: '#B7791F',
-  warningSoft: '#FFF4DD',
-  danger: '#C24747',
-  dangerSoft: '#FDEDED',
-  overlay: 'rgba(15, 23, 42, 0.14)',
+  canvas: '#F6F2EC',
+  surface: '#FFFCF8',
+  surfaceMuted: '#F3ECE4',
+  surfaceRaised: '#FBF7F2',
+  surfaceInset: '#EEE5DC',
+  border: '#E5DCD1',
+  borderStrong: '#D7CCC0',
+  text: '#201B16',
+  textMuted: '#655C54',
+  textSubtle: '#8E8378',
+  primary: '#D94B37',
+  primaryPressed: '#B93A28',
+  primarySoft: '#F8E4DE',
+  success: '#2E7B57',
+  successSoft: '#E8F2EC',
+  warning: '#B67A24',
+  warningSoft: '#FAF0DF',
+  danger: '#B94638',
+  dangerSoft: '#F8E7E3',
+  info: '#456C97',
+  infoSoft: '#EAF1F8',
+  overlay: 'rgba(32, 27, 22, 0.12)',
 } as const;
 
 export const spacing = {
@@ -34,31 +36,31 @@ export const spacing = {
 } as const;
 
 export const radius = {
-  sm: 10,
-  md: 14,
-  lg: 18,
-  xl: 24,
+  sm: 12,
+  md: 16,
+  lg: 20,
+  xl: 28,
   pill: 999,
 } as const;
 
 export const typography = {
   hero: {
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 32,
+    lineHeight: 38,
     fontWeight: '700',
     color: colors.text,
-    letterSpacing: -0.8,
+    letterSpacing: -0.9,
   } satisfies TextStyle,
   title: {
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: '700',
     color: colors.text,
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
   } satisfies TextStyle,
   sectionTitle: {
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 19,
+    lineHeight: 25,
     fontWeight: '700',
     color: colors.text,
   } satisfies TextStyle,
@@ -73,12 +75,12 @@ export const typography = {
     color: colors.textMuted,
   } satisfies TextStyle,
   label: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 17,
     fontWeight: '600',
     color: colors.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   } satisfies TextStyle,
   caption: {
     fontSize: 13,
@@ -95,25 +97,25 @@ export const typography = {
 export const shadows = {
   card: Platform.select<ViewStyle>({
     ios: {
-      shadowColor: '#0F172A',
-      shadowOpacity: 0.08,
+      shadowColor: '#2A2119',
+      shadowOpacity: 0.06,
       shadowRadius: 18,
       shadowOffset: { width: 0, height: 8 },
     },
     android: {
-      elevation: 4,
+      elevation: 3,
     },
     default: {},
   }) as ViewStyle,
   floating: Platform.select<ViewStyle>({
     ios: {
-      shadowColor: '#0F172A',
-      shadowOpacity: 0.12,
-      shadowRadius: 24,
+      shadowColor: '#2A2119',
+      shadowOpacity: 0.1,
+      shadowRadius: 26,
       shadowOffset: { width: 0, height: 14 },
     },
     android: {
-      elevation: 8,
+      elevation: 7,
     },
     default: {},
   }) as ViewStyle,

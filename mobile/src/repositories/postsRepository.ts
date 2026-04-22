@@ -38,6 +38,9 @@ function mapPostDocument(
   return {
     id: docSnap.id,
     userId: typeof data.userId === 'string' ? data.userId : undefined,
+    placeId: typeof data.placeId === 'string' ? data.placeId : null,
+    heroImageUrl:
+      typeof data.heroImageUrl === 'string' ? data.heroImageUrl : null,
     text: typeof data.text === 'string' ? data.text : '',
     category: isSpotCategory(data.category) ? data.category : undefined,
     lat: data.lat,

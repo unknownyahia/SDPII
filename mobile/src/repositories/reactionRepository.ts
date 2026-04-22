@@ -1,5 +1,6 @@
 import {
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   onSnapshot,
@@ -38,6 +39,41 @@ export function subscribeToLikeUserIds(
     collection(db, POSTS_COLLECTION, postId, REACTIONS_COLLECTION),
     (snapshot) => {
       onUserIds(snapshot.docs.map((docSnap) => docSnap.id));
+    },
+    (error) => {
+      if (onError) {
+        onError(error);
+      }
+    }
+  );
+}
+
+export function subscribeToLikeCountsByPost(
+  onCounts: (counts: Record<string, number>) => void,
+  onError?: (error: Error) => void
+) {
+  return onSnapshot(
+    collectionGroup(db, REACTIONS_COLLECTION),
+    (snapshot) => {
+      const counts: Record<string, number> = {};
+
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        const postId =
+          typeof data.postId === 'string' ? data.postId : docSnap.ref.parent.parent?.id;
+
+        if (!postId) {
+          return;
+        }
+
+        if (data.type && data.type !== 'like') {
+          return;
+        }
+
+        counts[postId] = (counts[postId] ?? 0) + 1;
+      });
+
+      onCounts(counts);
     },
     (error) => {
       if (onError) {

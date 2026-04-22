@@ -1,0 +1,38 @@
+{
+  "seedId": "qatar-discovery-v1",
+  "version": 1,
+  "seedPrefix": "seed_qatar_v1",
+  "projectId": "spots-42d51",
+  "baseTimestamp": "2026-04-21T18:30:00+03:00",
+  "phaseOrder": ["phaseA", "phaseB"],
+  "geography": {
+    "priorityAreas": [
+      "Doha",
+      "West Bay",
+      "The Pearl",
+      "Lusail",
+      "Msheireb",
+      "Katara",
+      "Education City",
+      "Aspire Zone",
+      "Al Sadd",
+      "Al Waab"
+    ],
+    "secondaryAreas": [
+      "Al Wakrah",
+      "Al Khor",
+      "Umm Salal",
+      "Dukhan",
+      "Al Rayyan",
+      "Gharrafa"
+    ]
+  },
+  "targets": {
+    "users": 24,
+    "events": 64,
+    "posts": 920,
+    "comments": 2100,
+    "reactions": 4600,
+    "favorites": 1800
+  }
+}

@@ -117,16 +117,28 @@ bundle exec pod install --project-directory=ios
 - The mobile app currently uses the Firebase JavaScript SDK configuration already in `mobile/src/firebase/firebase.ts`
 - The backend callable summary flow requires Firebase Functions to be deployed or emulated
 - `functions/index.js` also requires OpenAI config on the backend
+- Live Cloud Functions deployment requires the Firebase project to be on the Blaze plan
 
 ### OpenAI config for summaries
 
 The callable `summarizeArea` expects Firebase runtime config:
 
 ```bash
-firebase functions:config:set openai.key="YOUR_OPENAI_API_KEY"
+npx firebase-tools functions:config:set openai.key="YOUR_OPENAI_API_KEY" --project spots-42d51
 ```
 
 If you are using emulators, make sure the functions emulator can read the same config.
+
+### Deploy functions after Blaze upgrade
+
+From the repo root:
+
+```bash
+npm run functions:install
+cd functions && npm run lint && cd ..
+npx firebase-tools deploy --only functions --project spots-42d51
+npx firebase-tools functions:list --project spots-42d51
+```
 
 ## Known Limitations
 

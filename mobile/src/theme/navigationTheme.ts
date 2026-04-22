@@ -10,7 +10,7 @@ export const appNavigationTheme: Theme = {
   colors: {
     ...DefaultTheme.colors,
     primary: colors.primary,
-    background: colors.background,
+    background: colors.canvas,
     card: colors.surface,
     text: colors.text,
     border: colors.border,

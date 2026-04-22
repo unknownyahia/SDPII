@@ -2,33 +2,48 @@ import React from 'react';
 import {
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
 
 import { ExploreMapSurface } from '../../components/explore/ExploreMapSurface.web';
-import { AppHeader } from '../../components/ui/AppHeader';
+import { DiscoveryFilterBar } from '../../components/explore/DiscoveryFilterBar';
+import { EventCard } from '../../components/explore/EventCard';
+import { EventDetailPanel } from '../../components/explore/EventDetailPanel';
+import { SpotCard } from '../../components/explore/SpotCard';
+import { SpotDetailPanel } from '../../components/explore/SpotDetailPanel';
 import { PrimaryButton, SecondaryButton } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { FilterChip } from '../../components/ui/Chip';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { InfoRow } from '../../components/ui/InfoRow';
 import { LoadingState } from '../../components/ui/LoadingState';
-import { MetricTile } from '../../components/ui/MetricTile';
 import { ScreenContainer } from '../../components/ui/ScreenContainer';
 import { Section } from '../../components/ui/Section';
+import { StatusBanner } from '../../components/ui/StatusBanner';
 import { TextField } from '../../components/ui/TextField';
 import { useAuth } from '../../context/AuthContext';
+import { useLocalization } from '../../context/LocalizationContext';
+import { getReportReasonLabel } from '../../i18n';
 import { subscribeToEvents } from '../../repositories/eventRepository';
 import { subscribeToPosts } from '../../repositories/postsRepository';
 import {
   addCommentToPost,
   CommentValidationError,
   deleteOwnComment,
+  observeCommentCountsByPost,
   observeCommentsForPost,
 } from '../../services/commentService';
+import {
+  buildDiscoveryEventItems,
+  buildDiscoverySpotItems,
+  diversifyDiscoveryItems,
+  formatRelativeTime,
+  getTimestampMs,
+} from '../../services/discoveryService';
 import {
   filterExploreEvents,
   filterExplorePosts,
@@ -44,6 +59,7 @@ import {
   requestForegroundLocationPermission,
 } from '../../services/locationService';
 import {
+  observeLikeCountsByPost,
   ReactionValidationError,
   observeLikeUserIdsForPost,
   togglePostLike,
@@ -54,18 +70,30 @@ import {
 } from '../../services/reportService';
 import { summarizeAreaPosts } from '../../services/summaryService';
 import { colors, radius, spacing, typography } from '../../theme/designSystem';
-import { showAlert } from '../../utils/showAlert';
+import {
+  webDesktopChip,
+  webDesktopControl,
+  webDesktopLayout,
+  webDesktopSectionTitle,
+  webDesktopSupportSurface,
+  webDesktopSurface,
+} from '../../theme/webDesktopSystem';
+import {
+  getBlockedDataMessage,
+  getErrorMessage,
+  isDataAccessBlockedError,
+} from '../../utils/dataAccessError';
 import type { PostComment } from '../../types/comment';
 import type { PromotedEvent } from '../../types/event';
-import type { SpotCategory, SpotPost } from '../../types/post';
+import type { SpotPost } from '../../types/post';
 import type { ReportReason, ReportTargetType } from '../../types/report';
 
-const FILTERS: readonly { id: CategoryFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'fishing', label: 'Fishing' },
-  { id: 'event', label: 'Event' },
-  { id: 'sighting', label: 'Sighting' },
-  { id: 'weather', label: 'Weather' },
+const FILTER_IDS: readonly CategoryFilter[] = [
+  'all',
+  'fishing',
+  'event',
+  'sighting',
+  'weather',
 ];
 
 const REPORT_REASONS: readonly ReportReason[] = [
@@ -81,18 +109,6 @@ type BrowserCoordinates = {
   longitude: number;
 };
 
-type RankedPost = {
-  post: SpotPost;
-  distanceKm: number | null;
-  createdAtMs: number | null;
-};
-
-type RankedEvent = {
-  event: PromotedEvent;
-  distanceKm: number | null;
-  startAtMs: number | null;
-};
-
 type SelectedResult =
   | { kind: 'post'; id: string }
   | { kind: 'event'; id: string };
@@ -105,162 +121,20 @@ type BannerState = {
   body: string;
 };
 
-function formatCategoryLabel(category?: SpotCategory) {
-  if (!category) {
-    return 'Spot';
-  }
-
-  return category.charAt(0).toUpperCase() + category.slice(1);
-}
-
 function formatReasonLabel(reason: ReportReason) {
-  return reason.charAt(0).toUpperCase() + reason.slice(1);
+  return getReportReasonLabel(reason);
 }
 
-function formatDateLabel(value: string) {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
-}
-
-function formatLocationLabel(input: {
-  locationName?: string | null;
-  lat: number;
-  lng: number;
-}) {
-  return (
-    input.locationName ||
-    `Lat ${input.lat.toFixed(4)}, Lng ${input.lng.toFixed(4)}`
-  );
-}
-
-function getTimestampMs(value: unknown) {
-  if (!value) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value.getTime();
-  }
-
-  if (typeof value === 'string' || typeof value === 'number') {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
-  }
-
-  if (typeof value === 'object') {
-    const candidate = value as {
-      toDate?: () => Date;
-      seconds?: number;
-    };
-
-    if (typeof candidate.toDate === 'function') {
-      const parsed = candidate.toDate();
-      return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
-    }
-
-    if (typeof candidate.seconds === 'number') {
-      return candidate.seconds * 1000;
-    }
-  }
-
-  return null;
-}
-
-function formatTimestampLabel(value: number | null) {
-  if (value === null) {
-    return 'Pending timestamp';
-  }
-
-  return new Date(value).toLocaleString();
-}
-
-function calculateDistanceKm(
-  origin: BrowserCoordinates,
-  destination: { lat: number; lng: number }
+function formatTimestampLabel(
+  value: unknown,
+  t: (key: string) => string
 ) {
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-  const earthRadiusKm = 6371;
-  const latitudeDelta = toRadians(destination.lat - origin.latitude);
-  const longitudeDelta = toRadians(destination.lng - origin.longitude);
-  const originLatitude = toRadians(origin.latitude);
-  const destinationLatitude = toRadians(destination.lat);
-
-  const a =
-    Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2) +
-    Math.cos(originLatitude) *
-      Math.cos(destinationLatitude) *
-      Math.sin(longitudeDelta / 2) *
-      Math.sin(longitudeDelta / 2);
-
-  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function formatDistanceLabel(distanceKm: number | null) {
-  if (distanceKm === null) {
-    return 'Distance ranking unavailable';
+  const relative = formatRelativeTime(getTimestampMs(value));
+  if (relative) {
+    return relative;
   }
 
-  if (distanceKm < 1) {
-    return `${Math.round(distanceKm * 1000)} m away`;
-  }
-
-  return `${distanceKm.toFixed(distanceKm < 10 ? 1 : 0)} km away`;
-}
-
-function formatCoordinatesLabel(coords: BrowserCoordinates) {
-  return `Lat ${coords.latitude.toFixed(4)}, Lng ${coords.longitude.toFixed(4)}`;
-}
-
-function StatusBanner({
-  title,
-  body,
-  tone = 'neutral',
-}: BannerState) {
-  return (
-    <View
-      style={[
-        styles.banner,
-        tone === 'warning' && styles.bannerWarning,
-        tone === 'success' && styles.bannerSuccess,
-      ]}
-    >
-      <Text style={styles.bannerTitle}>{title}</Text>
-      <Text style={styles.bannerBody}>{body}</Text>
-    </View>
-  );
-}
-
-function ResultCard({
-  eyebrow,
-  title,
-  body,
-  meta,
-  selected = false,
-  onPress,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  meta: string;
-  selected?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.dataCard,
-        selected && styles.dataCardSelected,
-        pressed && styles.dataCardPressed,
-      ]}
-    >
-      <Text style={styles.dataEyebrow}>{eyebrow}</Text>
-      <Text style={styles.dataTitle}>{title}</Text>
-      <Text style={styles.dataBody}>{body}</Text>
-      <Text style={styles.dataMeta}>{meta}</Text>
-    </Pressable>
-  );
+  return t('common.pendingTimestamp');
 }
 
 function CommentCard({
@@ -276,61 +150,99 @@ function CommentCard({
   onDelete: () => void;
   onReport: () => void;
 }) {
+  const { getRowDirection, getTextAlign, isRTL, t } = useLocalization();
+
   return (
     <View style={styles.commentCard}>
-      <View style={styles.commentHeader}>
+      <View style={[styles.commentHeader, { flexDirection: getRowDirection() }]}>
         <View style={styles.commentHeaderCopy}>
-          <Text style={styles.commentAuthor}>{comment.authorLabel}</Text>
-          <Text style={styles.commentTimestamp}>
-            {formatTimestampLabel(getTimestampMs(comment.createdAt))}
+          <Text
+            style={[
+              styles.commentAuthor,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {comment.authorLabel}
+          </Text>
+          <Text
+            style={[
+              styles.commentTimestamp,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {formatTimestampLabel(comment.createdAt, key => t(key))}
           </Text>
         </View>
 
-        <View style={styles.commentActionsInline}>
+        <View style={[styles.commentActionsInline, { flexDirection: getRowDirection() }]}>
           <Pressable onPress={onReport}>
-            <Text style={styles.commentActionText}>Report</Text>
+            <Text
+              style={[
+                styles.commentActionText,
+                { writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {t('explore.report')}
+            </Text>
           </Pressable>
           {canDelete ? (
             <Pressable onPress={onDelete} disabled={deleting}>
-              <Text style={[styles.commentActionText, styles.commentDeleteText]}>
-                {deleting ? 'Deleting...' : 'Delete'}
+              <Text
+                style={[
+                  styles.commentActionText,
+                  styles.commentDeleteText,
+                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {deleting ? t('explore.deleting') : t('explore.delete')}
               </Text>
             </Pressable>
           ) : null}
         </View>
       </View>
 
-      <Text style={styles.commentBody}>{comment.text}</Text>
+      <Text
+        style={[
+          styles.commentBody,
+          { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+        ]}
+      >
+        {comment.text}
+      </Text>
     </View>
   );
 }
 
 export function ExploreScreen() {
   const { user } = useAuth();
-  const { width } = useWindowDimensions();
-  const isWideLayout = Platform.OS === 'web' && width >= 960;
-  const isDesktopLayout = Platform.OS === 'web' && width >= 1320;
-  const splitResultsLayout = Platform.OS === 'web' && width >= 1120;
+  const { getRowDirection, getTextAlign, isRTL, language, t } = useLocalization();
+  const { width, height } = useWindowDimensions();
+  const isWeb = Platform.OS === 'web';
+  const hasToolbarColumns = isWeb && width >= 960;
+  const hasWorkspaceColumns = isWeb && width >= 1120;
+  const useFixedWorkspace = isWeb && width >= 1120;
   const [events, setEvents] = React.useState<PromotedEvent[]>([]);
   const [posts, setPosts] = React.useState<SpotPost[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [selectedCategory, setSelectedCategory] =
     React.useState<CategoryFilter>('all');
   const [searchQuery, setSearchQuery] = React.useState('');
+  const [whereQuery, setWhereQuery] = React.useState('');
+  const [showExtraFilters, setShowExtraFilters] = React.useState(false);
+  const [mapSearchAsMove, setMapSearchAsMove] = React.useState(true);
   const [browserLocation, setBrowserLocation] =
     React.useState<BrowserCoordinates | null>(null);
   const [locationLoading, setLocationLoading] = React.useState(false);
-  const [locationStatus, setLocationStatus] = React.useState<BannerState>({
-    tone: 'neutral',
-    title: 'Interactive web map is active',
-    body:
-      'The browser version now includes a real interactive map while keeping the list/detail workflow available alongside it.',
-  });
+  const [locationStatus, setLocationStatus] = React.useState<BannerState | null>(null);
   const [selectedResult, setSelectedResult] =
     React.useState<SelectedResult | null>(null);
   const [summaryLoading, setSummaryLoading] = React.useState(false);
   const [summary, setSummary] = React.useState<string | null>(null);
+  const [dataIssue, setDataIssue] = React.useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = React.useState(0);
   const [favoritePostIds, setFavoritePostIds] = React.useState<string[]>([]);
+  const [commentCountsByPostId, setCommentCountsByPostId] = React.useState<Record<string, number>>({});
+  const [likeCountsByPostId, setLikeCountsByPostId] = React.useState<Record<string, number>>({});
   const [favoriteLoading, setFavoriteLoading] = React.useState(false);
   const [comments, setComments] = React.useState<PostComment[]>([]);
   const [commentText, setCommentText] = React.useState('');
@@ -344,6 +256,36 @@ export function ExploreScreen() {
   const [reportTargetType, setReportTargetType] = React.useState<ReportTargetType>('post');
   const [reportTargetId, setReportTargetId] = React.useState<string | null>(null);
   const [detailFeedback, setDetailFeedback] = React.useState<BannerState | null>(null);
+  const [detailExpanded, setDetailExpanded] = React.useState(false);
+  const resultsScrollRef = React.useRef<ScrollView | null>(null);
+  const workspaceHeight = useFixedWorkspace
+    ? Math.max(620, height - 60)
+    : null;
+
+  const handleDataIssue = React.useCallback(
+    (error: unknown, fallbackMessage: string) => {
+      const nextMessage = isDataAccessBlockedError(error)
+        ? getBlockedDataMessage('one or more Explore data feeds')
+        : getErrorMessage(error, fallbackMessage);
+
+      setDataIssue(current => current ?? nextMessage);
+    },
+    []
+  );
+
+  const handleRetry = React.useCallback(() => {
+    setDataIssue(null);
+    setLoading(true);
+    setRefreshToken(current => current + 1);
+  }, []);
+
+  const handleShowResultsList = React.useCallback(() => {
+    setDetailExpanded(false);
+    resultsScrollRef.current?.scrollTo({
+      y: 0,
+      animated: true,
+    });
+  }, []);
 
   React.useEffect(() => {
     const unsubscribe = subscribeToPosts(
@@ -353,30 +295,50 @@ export function ExploreScreen() {
       },
       error => {
         setLoading(false);
-        showAlert('Explore data error', error?.message ?? 'Failed to load posts.');
+        handleDataIssue(error, 'Failed to load posts.');
       }
     );
 
     return unsubscribe;
-  }, []);
+  }, [handleDataIssue, refreshToken]);
 
   React.useEffect(() => {
     const unsubscribe = subscribeToEvents(setEvents, error => {
-      showAlert('Explore data error', error?.message ?? 'Failed to load events.');
+      handleDataIssue(error, 'Failed to load events.');
     });
     return unsubscribe;
-  }, []);
+  }, [handleDataIssue, refreshToken]);
 
   React.useEffect(() => {
     const unsubscribe = observeFavoritePostIds(
       user?.id,
       setFavoritePostIds,
       error => {
-        showAlert('Favorites error', error?.message ?? 'Failed to load favorites.');
+        handleDataIssue(error, 'Failed to load favorites.');
       }
     );
     return unsubscribe;
-  }, [user?.id]);
+  }, [handleDataIssue, refreshToken, user?.id]);
+
+  React.useEffect(() => {
+    const unsubscribe = observeCommentCountsByPost(
+      setCommentCountsByPostId,
+      error => {
+        handleDataIssue(error, 'Failed to load comment counts.');
+      }
+    );
+    return unsubscribe;
+  }, [handleDataIssue, refreshToken]);
+
+  React.useEffect(() => {
+    const unsubscribe = observeLikeCountsByPost(
+      setLikeCountsByPostId,
+      error => {
+        handleDataIssue(error, 'Failed to load like counts.');
+      }
+    );
+    return unsubscribe;
+  }, [handleDataIssue, refreshToken]);
 
   const selectedPostId = selectedResult?.kind === 'post' ? selectedResult.id : null;
 
@@ -385,26 +347,26 @@ export function ExploreScreen() {
       selectedPostId,
       setComments,
       error => {
-        showAlert('Comments error', error?.message ?? 'Failed to load comments.');
+        handleDataIssue(error, 'Failed to load comments.');
       }
     );
     return unsubscribe;
-  }, [selectedPostId]);
+  }, [handleDataIssue, selectedPostId]);
 
   React.useEffect(() => {
     const unsubscribe = observeLikeUserIdsForPost(
       selectedPostId,
       setLikeUserIds,
       error => {
-        showAlert('Likes error', error?.message ?? 'Failed to load likes.');
+        handleDataIssue(error, 'Failed to load likes.');
       }
     );
     return unsubscribe;
-  }, [selectedPostId]);
+  }, [handleDataIssue, selectedPostId]);
 
   React.useEffect(() => {
     setSummary(null);
-  }, [searchQuery, selectedCategory]);
+  }, [searchQuery, selectedCategory, whereQuery]);
 
   React.useEffect(() => {
     setCommentText('');
@@ -412,135 +374,161 @@ export function ExploreScreen() {
     setReportReason('spam');
     setReportNote('');
     setDetailFeedback(null);
+    setDetailExpanded(false);
   }, [selectedResult?.id]);
 
   const filteredPosts = React.useMemo(
-    () => filterExplorePosts(posts, selectedCategory, searchQuery),
-    [posts, searchQuery, selectedCategory]
+    () => {
+      const baseResults = filterExplorePosts(posts, selectedCategory, searchQuery);
+      const normalizedWhereQuery = whereQuery.trim().toLowerCase();
+
+      if (!normalizedWhereQuery) {
+        return baseResults;
+      }
+
+      return baseResults.filter(post => {
+        const fields = [post.locationName ?? '', post.text];
+        return fields.some(field => field.toLowerCase().includes(normalizedWhereQuery));
+      });
+    },
+    [posts, searchQuery, selectedCategory, whereQuery]
   );
   const filteredEvents = React.useMemo(
-    () => filterExploreEvents(events, selectedCategory, searchQuery),
-    [events, searchQuery, selectedCategory]
+    () => {
+      const baseResults = filterExploreEvents(events, selectedCategory, searchQuery);
+      const normalizedWhereQuery = whereQuery.trim().toLowerCase();
+
+      if (!normalizedWhereQuery) {
+        return baseResults;
+      }
+
+      return baseResults.filter(event => {
+        const fields = [
+          event.locationName ?? '',
+          event.venueName ?? '',
+          event.title,
+          event.description,
+        ];
+
+        return fields.some(field => field.toLowerCase().includes(normalizedWhereQuery));
+      });
+    },
+    [events, searchQuery, selectedCategory, whereQuery]
   );
 
-  const rankedPosts = React.useMemo<RankedPost[]>(
+  const discoverySpotItems = React.useMemo(
     () =>
-      filteredPosts
-        .map(post => ({
-          post,
-          distanceKm: browserLocation
-            ? calculateDistanceKm(browserLocation, post)
-            : null,
-          createdAtMs: getTimestampMs(post.createdAt),
-        }))
-        .sort((left, right) => {
-          if (left.distanceKm !== null && right.distanceKm !== null) {
-            if (left.distanceKm !== right.distanceKm) {
-              return left.distanceKm - right.distanceKm;
-            }
-          } else if (left.distanceKm !== null) {
-            return -1;
-          } else if (right.distanceKm !== null) {
-            return 1;
-          }
-
-          return (right.createdAtMs ?? 0) - (left.createdAtMs ?? 0);
-        }),
-    [browserLocation, filteredPosts]
+      buildDiscoverySpotItems(filteredPosts, {
+        commentCountsByPostId,
+        likeCountsByPostId,
+        favoritePostIds,
+        browserLocation,
+        searchQuery,
+      }),
+    [
+      browserLocation,
+      commentCountsByPostId,
+      favoritePostIds,
+      filteredPosts,
+      likeCountsByPostId,
+      searchQuery,
+    ]
   );
 
-  const rankedEvents = React.useMemo<RankedEvent[]>(
+  const discoveryEventItems = React.useMemo(
     () =>
-      filteredEvents
-        .map(event => ({
-          event,
-          distanceKm: browserLocation
-            ? calculateDistanceKm(browserLocation, event)
-            : null,
-          startAtMs: getTimestampMs(event.startTime),
-        }))
-        .sort((left, right) => {
-          if (left.distanceKm !== null && right.distanceKm !== null) {
-            if (left.distanceKm !== right.distanceKm) {
-              return left.distanceKm - right.distanceKm;
-            }
-          } else if (left.distanceKm !== null) {
-            return -1;
-          } else if (right.distanceKm !== null) {
-            return 1;
-          }
-
-          if (left.startAtMs !== null && right.startAtMs !== null) {
-            return left.startAtMs - right.startAtMs;
-          }
-
-          return (left.startAtMs ?? 0) - (right.startAtMs ?? 0);
-        }),
-    [browserLocation, filteredEvents]
+      buildDiscoveryEventItems(filteredEvents, {
+        posts: filteredPosts,
+        browserLocation,
+        searchQuery,
+      }),
+    [browserLocation, filteredEvents, filteredPosts, searchQuery]
   );
-
-  const selectedPostEntry = React.useMemo(
+  const rankedResults = React.useMemo(
     () =>
-      selectedResult?.kind === 'post'
-        ? rankedPosts.find(item => item.post.id === selectedResult.id) ?? null
-        : null,
-    [rankedPosts, selectedResult]
-  );
-
-  const selectedEventEntry = React.useMemo(
-    () =>
-      selectedResult?.kind === 'event'
-        ? rankedEvents.find(item => item.event.id === selectedResult.id) ?? null
-        : null,
-    [rankedEvents, selectedResult]
+      diversifyDiscoveryItems(
+        [...discoverySpotItems, ...discoveryEventItems].sort(
+          (left, right) => right.rankingScore - left.rankingScore
+        )
+      ),
+    [discoveryEventItems, discoverySpotItems]
   );
 
   const favoritePostIdSet = React.useMemo(() => new Set(favoritePostIds), [favoritePostIds]);
   const likeUserIdSet = React.useMemo(() => new Set(likeUserIds), [likeUserIds]);
 
-  const selectedEvent = selectedEventEntry?.event ?? null;
-  const selectedPost = selectedPostEntry?.post ?? null;
+  const selectedPost =
+    selectedResult?.kind === 'post'
+      ? filteredPosts.find(post => post.id === selectedResult.id) ?? null
+      : null;
+  const selectedSpotItem =
+    selectedResult?.kind === 'post'
+      ? discoverySpotItems.find(item => item.postId === selectedResult.id) ?? null
+      : null;
+  const selectedEventItem =
+    selectedResult?.kind === 'event'
+      ? discoveryEventItems.find(item => item.eventId === selectedResult.id) ?? null
+      : null;
   const totalVisible = filteredPosts.length + filteredEvents.length;
   const hasNoResults = totalVisible === 0;
+  const filterOptions = React.useMemo(
+    () =>
+      FILTER_IDS.map(id => ({
+        id,
+        label: t(`category.${id}`),
+      })),
+    [t]
+  );
 
   const handleSelectPost = React.useCallback((post: SpotPost) => {
+    const isSameSelection =
+      selectedResult?.kind === 'post' && selectedResult.id === post.id;
+
     setSelectedResult({ kind: 'post', id: post.id });
-  }, []);
+    setDetailExpanded(current => (isSameSelection ? !current : false));
+  }, [selectedResult]);
 
   const handleSelectEvent = React.useCallback((event: PromotedEvent) => {
+    const isSameSelection =
+      selectedResult?.kind === 'event' && selectedResult.id === event.id;
+
     setSelectedResult({ kind: 'event', id: event.id });
-  }, []);
+    setDetailExpanded(current => (isSameSelection ? !current : false));
+  }, [selectedResult]);
 
   React.useEffect(() => {
     const hasSelectedPost =
       selectedResult?.kind === 'post' &&
-      rankedPosts.some(item => item.post.id === selectedResult.id);
+      rankedResults.some(
+        item => item.kind === 'spot' && item.postId === selectedResult.id
+      );
     const hasSelectedEvent =
       selectedResult?.kind === 'event' &&
-      rankedEvents.some(item => item.event.id === selectedResult.id);
+      rankedResults.some(
+        item => item.kind === 'event' && item.eventId === selectedResult.id
+      );
 
     if (hasSelectedPost || hasSelectedEvent) {
       return;
     }
 
-    if (rankedEvents[0]) {
-      setSelectedResult({ kind: 'event', id: rankedEvents[0].event.id });
-      return;
-    }
-
-    if (rankedPosts[0]) {
-      setSelectedResult({ kind: 'post', id: rankedPosts[0].post.id });
+    if (rankedResults[0]) {
+      setSelectedResult(
+        rankedResults[0].kind === 'spot'
+          ? { kind: 'post', id: rankedResults[0].postId }
+          : { kind: 'event', id: rankedResults[0].eventId }
+      );
       return;
     }
 
     if (selectedResult !== null) {
       setSelectedResult(null);
     }
-  }, [rankedEvents, rankedPosts, selectedResult]);
+  }, [rankedResults, selectedResult]);
 
   const handleGenerateSummary = async () => {
     if (filteredPosts.length === 0) {
-      setSummary('No posts in this view to summarize.');
+      setSummary(t('explore.noSummary'));
       return;
     }
 
@@ -553,8 +541,8 @@ export function ExploreScreen() {
         })),
       });
       setSummary(nextSummary);
-    } catch (error: any) {
-      setSummary(`Failed to generate summary: ${String(error?.message || error)}`);
+    } catch {
+      setSummary(t('explore.summaryError'));
     } finally {
       setSummaryLoading(false);
     }
@@ -568,9 +556,8 @@ export function ExploreScreen() {
       if (status !== 'granted') {
         setLocationStatus({
           tone: 'warning',
-          title: 'Browser location was not granted',
-          body:
-            'Explore remains usable without location, but nearby ranking needs browser location access.',
+          title: t('explore.locationDeniedTitle'),
+          body: t('explore.locationDeniedBody'),
         });
         return;
       }
@@ -579,15 +566,14 @@ export function ExploreScreen() {
       setBrowserLocation(coords);
       setLocationStatus({
         tone: 'success',
-        title: 'Nearby ranking is enabled',
-        body:
-          'Posts and promoted events are now ranked from your current browser location.',
+        title: t('explore.locationEnabledTitle'),
+        body: t('explore.locationEnabledBody'),
       });
     } catch (error: any) {
       setLocationStatus({
         tone: 'warning',
-        title: 'Browser location is unavailable',
-        body: error?.message ?? 'Unable to read your browser location right now.',
+        title: t('explore.locationUnavailableTitle'),
+        body: error?.message ?? t('explore.locationUnavailableBody'),
       });
     } finally {
       setLocationLoading(false);
@@ -609,19 +595,21 @@ export function ExploreScreen() {
 
       setDetailFeedback({
         tone: 'success',
-        title: isFavorite ? 'Saved to favorites' : 'Removed from favorites',
+        title: isFavorite
+          ? t('explore.savedToFavoritesTitle')
+          : t('explore.removedFromFavoritesTitle'),
         body: isFavorite
-          ? 'This post now appears in your saved favorites list.'
-          : 'This post is no longer in your saved favorites list.',
+          ? t('explore.savedToFavoritesBody')
+          : t('explore.removedFromFavoritesBody'),
       });
     } catch (error: any) {
       setDetailFeedback({
         tone: 'warning',
-        title: 'Favorite update failed',
+        title: t('explore.favoriteErrorTitle'),
         body:
           error instanceof FavoriteValidationError
             ? error.message
-            : error?.message ?? 'Failed to update your favorites.',
+            : error?.message ?? t('explore.favoriteFailedBody'),
       });
     } finally {
       setFavoriteLoading(false);
@@ -643,19 +631,19 @@ export function ExploreScreen() {
 
       setDetailFeedback({
         tone: 'success',
-        title: isLiked ? 'Post liked' : 'Like removed',
+        title: isLiked ? t('explore.likedTitle') : t('explore.unlikedTitle'),
         body: isLiked
-          ? 'Your like was saved on this post.'
-          : 'Your like was removed from this post.',
+          ? t('explore.likedBody')
+          : t('explore.unlikedBody'),
       });
     } catch (error: any) {
       setDetailFeedback({
         tone: 'warning',
-        title: 'Like update failed',
+        title: t('explore.likeErrorTitle'),
         body:
           error instanceof ReactionValidationError
             ? error.message
-            : error?.message ?? 'Failed to update this like.',
+            : error?.message ?? t('explore.likeFailedBody'),
       });
     } finally {
       setLikeLoading(false);
@@ -678,17 +666,17 @@ export function ExploreScreen() {
       setCommentText('');
       setDetailFeedback({
         tone: 'success',
-        title: 'Comment posted',
-        body: 'Your comment was added to this spot.',
+        title: t('explore.commentPostedTitle'),
+        body: t('explore.commentPostedBody'),
       });
     } catch (error: any) {
       setDetailFeedback({
         tone: 'warning',
-        title: 'Comment failed',
+        title: t('explore.commentErrorTitle'),
         body:
           error instanceof CommentValidationError
             ? error.message
-            : error?.message ?? 'Failed to add this comment.',
+            : error?.message ?? t('explore.commentFailedBody'),
       });
     } finally {
       setCommentLoading(false);
@@ -710,17 +698,17 @@ export function ExploreScreen() {
       });
       setDetailFeedback({
         tone: 'success',
-        title: 'Comment deleted',
-        body: 'Your comment was removed from this post.',
+        title: t('explore.commentDeletedTitle'),
+        body: t('explore.commentDeletedBody'),
       });
     } catch (error: any) {
       setDetailFeedback({
         tone: 'warning',
-        title: 'Delete failed',
+        title: t('explore.deleteErrorTitle'),
         body:
           error instanceof CommentValidationError
             ? error.message
-            : error?.message ?? 'Failed to delete this comment.',
+            : error?.message ?? t('explore.deleteFailedBody'),
       });
     } finally {
       setDeletingCommentId(null);
@@ -754,25 +742,160 @@ export function ExploreScreen() {
       setReportNote('');
       setDetailFeedback({
         tone: 'success',
-        title: 'Report submitted',
-        body: 'Thanks. Your report has been recorded.',
+        title: t('explore.reportSubmittedTitle'),
+        body: t('explore.reportSubmittedBody'),
       });
     } catch (error: any) {
       setDetailFeedback({
         tone: 'warning',
-        title: 'Report failed',
+        title: t('explore.reportErrorTitle'),
         body:
           error instanceof ReportValidationError
             ? error.message
-            : error?.message ?? 'Failed to submit this report.',
+            : error?.message ?? t('explore.reportFailedBody'),
       });
     } finally {
       setReportLoading(false);
     }
   };
 
+  const stickyToolbarStyle =
+    isWeb
+      ? ({
+          position: 'sticky',
+          top: 0,
+          zIndex: 12,
+        } as unknown as object)
+      : null;
+  const locationSummaryLabel = browserLocation
+    ? t('explore.locationStatusActive')
+    : locationStatus?.tone === 'warning'
+      ? t('explore.locationStatusUnavailable')
+      : null;
+  const locationContextLabel = whereQuery.trim()
+    ? whereQuery.trim()
+    : language === 'ar'
+      ? 'قطر'
+      : 'Qatar';
+  const desktopFilterOptions = React.useMemo(
+    () =>
+      language === 'ar'
+        ? [
+            { id: 'all', label: 'الكل', glyph: '' },
+            { id: 'food', label: 'مأكولات ومشروبات', glyph: '✦' },
+            { id: 'coffee', label: 'قهوة', glyph: '☕' },
+            { id: 'study', label: 'دراسة وعمل', glyph: '▣' },
+            { id: 'outdoors', label: 'خارجي', glyph: '△' },
+            { id: 'events', label: 'فعاليات', glyph: '✷' },
+            { id: 'family', label: 'عائلة', glyph: '◎' },
+            { id: 'sights', label: 'معالم', glyph: '◌' },
+            { id: 'more', label: 'المزيد من الفلاتر', glyph: '⋯' },
+          ]
+        : [
+            { id: 'all', label: 'All', glyph: '' },
+            { id: 'food', label: 'Food & Drinks', glyph: '✦' },
+            { id: 'coffee', label: 'Coffee', glyph: '☕' },
+            { id: 'study', label: 'Study & Work', glyph: '▣' },
+            { id: 'outdoors', label: 'Outdoors', glyph: '△' },
+            { id: 'events', label: 'Events', glyph: '✷' },
+            { id: 'family', label: 'Family', glyph: '◎' },
+            { id: 'sights', label: 'Sights', glyph: '◌' },
+            { id: 'more', label: 'More filters', glyph: '⋯' },
+          ],
+    [language]
+  );
+  const activeDesktopFilterId = React.useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    if (showExtraFilters) {
+      return 'more';
+    }
+
+    if (!normalizedQuery && !whereQuery.trim() && selectedCategory === 'all') {
+      return 'all';
+    }
+
+    if (selectedCategory === 'event') {
+      return 'events';
+    }
+
+    if (normalizedQuery.includes('coffee')) {
+      return 'coffee';
+    }
+
+    if (normalizedQuery.includes('study')) {
+      return 'study';
+    }
+
+    if (normalizedQuery.includes('walk') || normalizedQuery.includes('outdoor')) {
+      return 'outdoors';
+    }
+
+    if (normalizedQuery.includes('family')) {
+      return 'family';
+    }
+
+    if (normalizedQuery.includes('culture') || selectedCategory === 'sighting') {
+      return 'sights';
+    }
+
+    if (
+      normalizedQuery.includes('dinner') ||
+      normalizedQuery.includes('dessert') ||
+      normalizedQuery.includes('lunch')
+    ) {
+      return 'food';
+    }
+
+    return null;
+  }, [searchQuery, selectedCategory, showExtraFilters, whereQuery]);
+  const handleDesktopFilterSelect = React.useCallback((filterId: string) => {
+    setShowExtraFilters(false);
+
+    switch (filterId) {
+      case 'all':
+        setSelectedCategory('all');
+        setSearchQuery('');
+        setWhereQuery('');
+        return;
+      case 'food':
+        setSelectedCategory('all');
+        setSearchQuery('dinner');
+        return;
+      case 'coffee':
+        setSelectedCategory('all');
+        setSearchQuery('coffee');
+        return;
+      case 'study':
+        setSelectedCategory('all');
+        setSearchQuery('study');
+        return;
+      case 'outdoors':
+        setSelectedCategory('all');
+        setSearchQuery('walk');
+        return;
+      case 'events':
+        setSelectedCategory('event');
+        setSearchQuery('');
+        return;
+      case 'family':
+        setSelectedCategory('all');
+        setSearchQuery('family');
+        return;
+      case 'sights':
+        setSelectedCategory('sighting');
+        setSearchQuery('culture');
+        return;
+      case 'more':
+        setShowExtraFilters(current => !current);
+        return;
+      default:
+        return;
+    }
+  }, []);
+
   if (loading) {
-    return <LoadingState label="Loading spots and events..." />;
+    return <LoadingState label={t('common.loading')} />;
   }
 
   return (
@@ -780,326 +903,393 @@ export function ExploreScreen() {
       scroll
       contentContainerStyle={[
         styles.content,
-        isDesktopLayout && styles.contentDesktop,
+        styles.contentWebCompact,
+        useFixedWorkspace && styles.contentWebWide,
       ]}
     >
-      <AppHeader
-        eyebrow="Explore"
-        title="Explore on web with a real interactive map."
-        subtitle="Filters, shared Firestore data, live map markers, selection details, social actions, and backend summaries are all available in the browser now."
-      />
-
-      <View style={[styles.stack, isDesktopLayout && styles.stackDesktop]}>
-        <View style={[styles.overviewGrid, isWideLayout && styles.overviewGridWide]}>
-          <View
-            style={[
-              styles.overviewPrimaryColumn,
-              isWideLayout && styles.overviewPrimaryColumnWide,
-            ]}
-          >
-            <Card>
-              <Section
-                title="Web status"
-                subtitle="The browser map is live now, and the list/detail workflow remains available as a complementary fallback and desktop browsing aid."
+      <Card style={[styles.toolbarCard, stickyToolbarStyle]}>
+        <View style={[styles.searchToolbarRow, hasToolbarColumns && styles.searchToolbarRowWide]}>
+          <View style={styles.searchSystemShell}>
+            <View style={styles.searchFieldBlock}>
+              <Text
+                style={[
+                  styles.searchFieldLabel,
+                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
               >
-                <StatusBanner {...locationStatus} />
+                {language === 'ar' ? 'ماذا' : 'What'}
+              </Text>
+              <TextInput
+                placeholder={
+                  language === 'ar'
+                    ? 'قهوة، أماكن للدراسة، فعاليات...'
+                    : 'Coffee, study spots, events...'
+                }
+                placeholderTextColor={colors.textSubtle}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                style={[
+                  styles.searchFieldInput,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              />
+            </View>
 
-                <View
-                  style={[
-                    styles.locationActions,
-                    isWideLayout && styles.locationActionsWide,
-                  ]}
-                >
-                  <PrimaryButton
-                    label={
-                      locationLoading
-                        ? 'Checking Browser Location...'
-                        : browserLocation
-                          ? 'Refresh Browser Location'
-                          : 'Use Browser Location'
-                    }
-                    loading={locationLoading}
-                    onPress={handleShareBrowserLocation}
-                  />
-                  {browserLocation ? (
-                    <SecondaryButton
-                      label="Keep Filtered List Mode"
-                      onPress={() =>
-                        setLocationStatus({
-                          tone: 'success',
-                          title: 'Nearby ranking is enabled',
-                          body:
-                            'You can keep browsing the filtered lists and detail panel while nearby ranking stays active.',
-                        })
-                      }
-                    />
-                  ) : null}
-                </View>
+            <View style={styles.searchFieldDivider} />
 
-                <InfoRow
-                  label="Map surface"
-                  value="Interactive web map enabled"
-                  subtle
-                />
-                <InfoRow
-                  label="Browser location"
-                  value={
-                    browserLocation
-                      ? formatCoordinatesLabel(browserLocation)
-                      : 'Not shared yet'
-                  }
-                  subtle
-                />
-              </Section>
-            </Card>
-
-            <Card>
-              <Section
-                title="Explore filters"
-                subtitle="Filter current posts and promoted events in a browser-safe browser workspace."
+            <View style={styles.searchFieldBlock}>
+              <Text
+                style={[
+                  styles.searchFieldLabel,
+                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
               >
-                <TextField
-                  placeholder="Search by text or location"
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                />
+                {language === 'ar' ? 'أين' : 'Where'}
+              </Text>
+              <TextInput
+                placeholder={
+                  language === 'ar'
+                    ? 'قطر، مدينة، أو منطقة'
+                    : 'Qatar, City, or area'
+                }
+                placeholderTextColor={colors.textSubtle}
+                value={whereQuery}
+                onChangeText={setWhereQuery}
+                style={[
+                  styles.searchFieldInput,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              />
+            </View>
 
-                <View style={styles.filterRow}>
-                  {FILTERS.map(filter => (
-                    <FilterChip
-                      key={filter.id}
-                      label={filter.label}
-                      active={selectedCategory === filter.id}
-                      onPress={() => setSelectedCategory(filter.id)}
-                    />
-                  ))}
-                </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleShareBrowserLocation}
+              style={({ pressed }) => [
+                styles.toolbarTargetButton,
+                pressed && styles.toolbarIconButtonPressed,
+              ]}
+            >
+              <Text style={styles.toolbarTargetButtonText}>⌖</Text>
+            </Pressable>
 
-                <View style={styles.metricRow}>
-                  <MetricTile label="Visible" value={totalVisible} accent />
-                  <MetricTile label="Posts" value={filteredPosts.length} />
-                  <MetricTile label="Events" value={filteredEvents.length} />
-                </View>
-              </Section>
-            </Card>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setDetailExpanded(false)}
+              style={({ pressed }) => [
+                styles.toolbarSearchButton,
+                pressed && styles.toolbarSearchButtonPressed,
+              ]}
+            >
+              <Text style={styles.toolbarSearchButtonText}>⌕</Text>
+            </Pressable>
           </View>
 
-          <View
-            style={[
-              styles.overviewSecondaryColumn,
-              isWideLayout && styles.overviewSecondaryColumnWide,
-            ]}
-          >
-            <Card style={styles.summaryCard}>
-              <Section
-                title="Area summary"
-                subtitle="Generate a concise backend summary from the filtered posts currently visible in your browser workspace."
-              >
-                <PrimaryButton
-                  label="Generate Summary"
-                  loading={summaryLoading}
-                  onPress={handleGenerateSummary}
-                />
-
-                {summary ? (
-                  <View style={styles.summaryResult}>
-                    <Text style={styles.summaryResultLabel}>Latest summary</Text>
-                    <Text style={styles.summaryResultText}>{summary}</Text>
-                  </View>
-                ) : (
-                  <View style={styles.summaryPlaceholder}>
-                    <Text style={styles.summaryPlaceholderTitle}>
-                      Summary stays tied to the current filters
-                    </Text>
-                    <Text style={styles.summaryPlaceholderText}>
-                      Refine the map view, then generate a concise readout of the visible spot posts.
-                    </Text>
-                  </View>
-                )}
-              </Section>
-            </Card>
+          <View style={styles.toolbarQuickActions}>
+            <SecondaryButton
+              label={t('explore.summaryButton')}
+              loading={summaryLoading}
+              onPress={handleGenerateSummary}
+              style={styles.toolbarActionButton}
+            />
+            <SecondaryButton
+              label={
+                locationLoading
+                  ? t('explore.locationChecking')
+                  : browserLocation
+                    ? t('explore.locationRefresh')
+                    : language === 'ar'
+                      ? 'بالقرب مني'
+                      : 'Near Me'
+              }
+              loading={locationLoading}
+              onPress={handleShareBrowserLocation}
+              style={styles.toolbarActionButton}
+            />
           </View>
         </View>
 
-        <View style={[styles.liveGrid, isWideLayout && styles.liveGridWide]}>
-          <View
-            style={[
-              styles.mapColumn,
-              isWideLayout && styles.mapColumnWide,
-              isDesktopLayout && styles.mapColumnDesktop,
-            ]}
-          >
-            <Card>
-              <Section
-                title="Live map"
-                subtitle="Click any marker to inspect its detail panel. The selected item stays synced with the list below."
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.desktopFilterRail,
+            { flexDirection: getRowDirection() },
+          ]}
+        >
+          {desktopFilterOptions.map(filter => {
+            const isActive = activeDesktopFilterId === filter.id;
+
+            return (
+              <Pressable
+                key={filter.id}
+                accessibilityRole="button"
+                onPress={() => handleDesktopFilterSelect(filter.id)}
+                style={({ pressed }) => [
+                  styles.desktopFilterChip,
+                  isActive && styles.desktopFilterChipActive,
+                  pressed && styles.desktopFilterChipPressed,
+                ]}
               >
-                <ExploreMapSurface
-                  posts={filteredPosts}
-                  events={filteredEvents}
-                  selectedResult={selectedResult}
-                  browserLocation={browserLocation}
-                  onSelectPost={handleSelectPost}
-                  onSelectEvent={handleSelectEvent}
+                {filter.glyph ? (
+                  <Text style={[styles.desktopFilterGlyph, isActive && styles.desktopFilterGlyphActive]}>
+                    {filter.glyph}
+                  </Text>
+                ) : null}
+                <Text
                   style={[
-                    styles.mapSurface,
-                    isWideLayout && styles.mapSurfaceWide,
-                    isDesktopLayout && styles.mapSurfaceDesktop,
+                    styles.desktopFilterText,
+                    isActive && styles.desktopFilterTextActive,
+                    { writingDirection: isRTL ? 'rtl' : 'ltr' },
                   ]}
-                />
+                >
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
-                <View style={styles.legendRow}>
-                  <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, styles.legendDotPost]} />
-                    <Text style={styles.legendLabel}>Spot posts</Text>
-                  </View>
-                  <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, styles.legendDotEvent]} />
-                    <Text style={styles.legendLabel}>Promoted events</Text>
-                  </View>
-                  <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, styles.legendDotLocation]} />
-                    <Text style={styles.legendLabel}>Your location</Text>
-                  </View>
-                </View>
-
-                <InfoRow
-                  label="Selection"
-                  value={
-                    selectedEvent
-                      ? selectedEvent.title
-                      : selectedPost
-                        ? formatLocationLabel(selectedPost)
-                        : 'Click a marker or list item'
-                  }
-                  subtle
-                />
-              </Section>
-            </Card>
+        {showExtraFilters ? (
+          <View style={styles.extraFiltersWrap}>
+            <DiscoveryFilterBar
+              filters={filterOptions}
+              activeId={selectedCategory}
+              onSelect={filterId => setSelectedCategory(filterId as CategoryFilter)}
+              compact
+              style={styles.filterBar}
+            />
           </View>
+        ) : null}
 
-          <View
+        {locationSummaryLabel || summary || dataIssue ? (
+          <View style={[styles.toolbarInfoRow, { flexDirection: getRowDirection() }]}>
+            {locationSummaryLabel ? (
+              <Text
+                style={[
+                  styles.toolbarInfoText,
+                  browserLocation && styles.toolbarInfoTextSuccess,
+                  locationStatus?.tone === 'warning' && styles.toolbarInfoTextWarning,
+                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {locationSummaryLabel}
+              </Text>
+            ) : null}
+
+            {summary ? (
+              <Text
+                style={[
+                  styles.toolbarInfoText,
+                  styles.toolbarInfoTextPrimary,
+                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+                numberOfLines={1}
+              >
+                {`${t('explore.summaryTitle')}: ${summary}`}
+              </Text>
+            ) : null}
+
+            {dataIssue ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={handleRetry}
+                style={({ pressed }) => [
+                  styles.toolbarInfoAction,
+                  pressed && styles.issueStripActionPressed,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.issueStripActionText,
+                    { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                >
+                  {t('common.retry')}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+      </Card>
+
+      <View style={[styles.resultsMetaRow, { flexDirection: getRowDirection() }]}>
+        <View style={styles.resultsMetaCopy}>
+          <Text
             style={[
-              styles.detailColumn,
-              isWideLayout && styles.detailColumnWide,
+              styles.resultsCountHeadline,
+              { writingDirection: isRTL ? 'rtl' : 'ltr' },
             ]}
           >
-            <Card
+            {t('explore.resultsCount', { count: totalVisible })}
+          </Text>
+          <Text
+            style={[
+              styles.resultsContextText,
+              { writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {language === 'ar' ? `في ${locationContextLabel}` : `in ${locationContextLabel}`}
+          </Text>
+        </View>
+
+        <View style={[styles.resultsMetaActions, { flexDirection: getRowDirection() }]}>
+          <Text
+            style={[
+              styles.sortLabelText,
+              { writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {language === 'ar' ? 'ترتيب حسب' : 'Sort by'}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.sortControl,
+              pressed && styles.desktopFilterChipPressed,
+            ]}
+          >
+            <Text
               style={[
-                styles.detailCard,
-                isWideLayout && styles.detailCardWide,
+                styles.sortControlText,
+                { writingDirection: isRTL ? 'rtl' : 'ltr' },
               ]}
             >
-              <Section
-                title="Selected details"
-                subtitle="The browser map now drives the same selection state used by the lists, summary flow, and post interactions."
-              >
-                {selectedEvent ? (
-                  <View style={styles.detailStack}>
-                    <Text style={styles.detailEyebrow}>PROMOTED EVENT</Text>
-                    <Text style={styles.detailTitle}>{selectedEvent.title}</Text>
-                    <Text style={styles.detailBody}>{selectedEvent.description}</Text>
-                    <InfoRow
-                      label="Location"
-                      value={formatLocationLabel(selectedEvent)}
-                    />
-                    <InfoRow
-                      label="Starts"
-                      value={formatDateLabel(selectedEvent.startTime)}
-                      subtle
-                    />
-                    <InfoRow
-                      label="Ends"
-                      value={formatDateLabel(selectedEvent.endTime)}
-                      subtle
-                    />
-                    <InfoRow
-                      label="Organizer"
-                      value={selectedEvent.createdBy || 'Unknown'}
-                      subtle
-                    />
-                    <InfoRow
-                      label="Distance"
-                      value={formatDistanceLabel(selectedEventEntry?.distanceKm ?? null)}
-                      subtle
+              {language === 'ar' ? 'موصى به' : 'Recommended'}
+            </Text>
+            <Text
+              style={[
+                styles.sortControlCaret,
+                { writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              ⌄
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View
+        style={[
+          styles.workspace,
+          hasWorkspaceColumns && styles.workspaceWide,
+          workspaceHeight ? { minHeight: workspaceHeight } : null,
+        ]}
+      >
+        <Card
+          style={[
+            styles.resultsCard,
+            hasWorkspaceColumns && styles.resultsCardWide,
+            workspaceHeight ? { height: workspaceHeight } : null,
+          ]}
+        >
+          {hasNoResults ? (
+            <EmptyState
+              compact
+              title={t('explore.noResultsTitle')}
+              subtitle={t('explore.noResultsSubtitle')}
+            />
+          ) : (
+            <ScrollView
+              ref={resultsScrollRef}
+              style={styles.panelScroll}
+              contentContainerStyle={styles.resultsList}
+              showsVerticalScrollIndicator={false}
+            >
+              {detailExpanded && selectedEventItem ? (
+                <View style={styles.inlineDetailPanel}>
+                  <View style={[styles.inlineDetailTopBar, { flexDirection: getRowDirection() }]}>
+                    <Text
+                      style={[
+                        styles.inlineDetailHeading,
+                        { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                      ]}
+                    >
+                      {selectedEventItem.title}
+                    </Text>
+                    <SecondaryButton
+                      label={t('explore.collapse')}
+                      onPress={() => setDetailExpanded(false)}
+                      style={styles.inlineDetailCollapseButton}
                     />
                   </View>
-                ) : null}
+                  <EventDetailPanel event={selectedEventItem} />
+                </View>
+              ) : null}
 
-                {selectedPost ? (
-                  <View style={styles.detailStack}>
-                    {detailFeedback ? <StatusBanner {...detailFeedback} /> : null}
-
-                    {!user ? (
-                      <StatusBanner
-                        tone="warning"
-                        title="Sign in for social actions"
-                        body="Likes, bookmarks, comments, and reports require a signed-in account on web just like mobile."
-                      />
-                    ) : null}
-
-                    <Text style={styles.detailEyebrow}>
-                      {formatCategoryLabel(selectedPost.category).toUpperCase()}
+              {detailExpanded && selectedSpotItem && selectedPost ? (
+                <View style={styles.inlineDetailPanel}>
+                  <View style={[styles.inlineDetailTopBar, { flexDirection: getRowDirection() }]}>
+                    <Text
+                      style={[
+                        styles.inlineDetailHeading,
+                        { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                      ]}
+                    >
+                      {selectedSpotItem.title}
                     </Text>
-                    <Text style={styles.detailTitle}>
-                      {formatLocationLabel(selectedPost)}
-                    </Text>
-                    <Text style={styles.detailBody}>{selectedPost.text}</Text>
-
-                    <View style={styles.metricRow}>
-                      <MetricTile label="Likes" value={likeUserIds.length} accent />
-                      <MetricTile label="Comments" value={comments.length} />
-                      <MetricTile
-                        label="Saved"
-                        value={favoritePostIdSet.has(selectedPost.id) ? 'Yes' : 'No'}
-                      />
-                    </View>
-
-                    <InfoRow
-                      label="Posted"
-                      value={formatTimestampLabel(selectedPostEntry?.createdAtMs ?? null)}
-                    />
-                    <InfoRow
-                      label="Distance"
-                      value={formatDistanceLabel(selectedPostEntry?.distanceKm ?? null)}
-                      subtle
-                    />
-
-                    <View style={styles.actionGrid}>
-                      <PrimaryButton
-                        label={
-                          user?.id && likeUserIdSet.has(user.id)
-                            ? `Liked (${likeUserIds.length})`
-                            : `Like (${likeUserIds.length})`
-                        }
-                        loading={likeLoading}
-                        disabled={!user}
-                        onPress={handleToggleLike}
-                      />
-                      <SecondaryButton
-                        label={
-                          favoritePostIdSet.has(selectedPost.id)
-                            ? 'Remove Bookmark'
-                            : 'Save Bookmark'
-                        }
-                        loading={favoriteLoading}
-                        disabled={!user}
-                        onPress={handleToggleFavorite}
-                      />
-                    </View>
-
                     <SecondaryButton
-                      label="Report Post"
-                      disabled={!user}
-                      onPress={() => openReportComposer('post', selectedPost.id)}
+                      label={t('explore.collapse')}
+                      onPress={() => setDetailExpanded(false)}
+                      style={styles.inlineDetailCollapseButton}
                     />
-
+                  </View>
+                  <SpotDetailPanel
+                    spot={selectedSpotItem}
+                    banner={
+                      <>
+                        {detailFeedback ? <StatusBanner compact {...detailFeedback} /> : null}
+                        {!user ? (
+                          <View style={styles.inlineNote}>
+                            <Text
+                              style={[
+                                styles.inlineNoteText,
+                                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                              ]}
+                            >
+                              {t('explore.signInForActionsBody')}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </>
+                    }
+                    actions={[
+                      {
+                        id: 'save',
+                        label: favoritePostIdSet.has(selectedPost.id)
+                          ? t('common.saved')
+                          : t('common.save'),
+                        tone: favoritePostIdSet.has(selectedPost.id) ? 'primary' : 'neutral',
+                        loading: favoriteLoading,
+                        disabled: !user,
+                        onPress: handleToggleFavorite,
+                      },
+                      {
+                        id: 'like',
+                        label:
+                          user?.id && likeUserIdSet.has(user.id)
+                            ? `${t('common.liked')} (${likeUserIds.length})`
+                            : `${t('common.like')} (${likeUserIds.length})`,
+                        tone:
+                          user?.id && likeUserIdSet.has(user.id) ? 'primary' : 'neutral',
+                        loading: likeLoading,
+                        disabled: !user,
+                        onPress: handleToggleLike,
+                      },
+                      {
+                        id: 'report',
+                        label: t('explore.report'),
+                        disabled: !user,
+                        onPress: () => openReportComposer('post', selectedPost.id),
+                      },
+                    ]}
+                  >
                     <Section
-                      title="Comments"
-                      subtitle="Commenting, likes, bookmarks, and reports now work in this web map workflow using the same shared data services."
+                      title={t('explore.commentsTitle', { count: comments.length })}
+                      subtitle={t('explore.commentsSubtitle')}
                     >
                       <TextField
-                        placeholder="Add a comment"
+                        placeholder={t('explore.commentPlaceholder')}
                         value={commentText}
                         onChangeText={setCommentText}
                         multiline
@@ -1107,12 +1297,12 @@ export function ExploreScreen() {
                         style={styles.commentInput}
                         helperText={
                           user
-                            ? 'Comments post immediately to the shared backend.'
-                            : 'Sign in to add a comment.'
+                            ? t('explore.commentHelperSignedIn')
+                            : t('explore.commentHelperSignedOut')
                         }
                       />
                       <PrimaryButton
-                        label="Add Comment"
+                        label={t('explore.addComment')}
                         loading={commentLoading}
                         disabled={!user}
                         onPress={handleAddComment}
@@ -1120,8 +1310,9 @@ export function ExploreScreen() {
 
                       {comments.length === 0 ? (
                         <EmptyState
-                          title="No comments yet"
-                          subtitle="Start the conversation on this spot."
+                          compact
+                          title={t('explore.noCommentsTitle')}
+                          subtitle={t('explore.noCommentsSubtitle')}
                         />
                       ) : (
                         <View style={styles.listStack}>
@@ -1141,18 +1332,15 @@ export function ExploreScreen() {
 
                     {reportTargetId ? (
                       <Section
-                        title={
-                          reportTargetType === 'comment'
-                            ? 'Report comment'
-                            : 'Report post'
-                        }
-                        subtitle="Choose the reason that best fits and add an optional note."
+                        title={t('explore.reportTitle')}
+                        subtitle={t('explore.reportSubtitle')}
                       >
                         <View style={styles.filterRowCompact}>
                           {REPORT_REASONS.map(reason => (
                             <FilterChip
                               key={reason}
                               label={formatReasonLabel(reason)}
+                              compact
                               active={reportReason === reason}
                               onPress={() => setReportReason(reason)}
                             />
@@ -1160,7 +1348,7 @@ export function ExploreScreen() {
                         </View>
 
                         <TextField
-                          placeholder="Optional note"
+                          placeholder={t('explore.reportNotePlaceholder')}
                           value={reportNote}
                           onChangeText={setReportNote}
                           multiline
@@ -1169,12 +1357,12 @@ export function ExploreScreen() {
 
                         <View style={styles.actionGrid}>
                           <SecondaryButton
-                            label="Cancel Report"
+                            label={t('common.cancel')}
                             disabled={reportLoading}
                             onPress={() => setReportTargetId(null)}
                           />
                           <PrimaryButton
-                            label="Submit Report"
+                            label={t('explore.submitReport')}
                             loading={reportLoading}
                             disabled={!user}
                             onPress={handleSubmitReport}
@@ -1182,97 +1370,157 @@ export function ExploreScreen() {
                         </View>
                       </Section>
                     ) : null}
-                  </View>
-                ) : null}
+                  </SpotDetailPanel>
+                </View>
+              ) : null}
 
-                {!selectedEvent && !selectedPost ? (
-                  hasNoResults ? (
-                    <EmptyState
-                      title="No explore data in this view"
-                      subtitle="No posts or promoted events matched the current filters."
-                    />
-                  ) : (
-                    <EmptyState
-                      title="Select an item"
-                      subtitle="Choose a post or promoted event from the map or filtered lists to inspect its details here."
-                    />
-                  )
-                ) : null}
-              </Section>
-            </Card>
-          </View>
-        </View>
-
-        <View style={[styles.resultsGrid, splitResultsLayout && styles.resultsGridWide]}>
-          <View style={[styles.resultsPane, splitResultsLayout && styles.resultsPaneWide]}>
-            <Card>
-              <Section
-                title="Promoted events"
-                subtitle="Current active events under the selected filters. Click any item to sync it with the live map and detail panel."
-              >
-                {rankedEvents.length === 0 ? (
-                  <EmptyState
-                    title="No promoted events in view"
-                    subtitle="Adjust your filters or publish an event from a qualified organization account."
+              {rankedResults.map(item =>
+                item.kind === 'spot' ? (
+                  <SpotCard
+                    key={item.id}
+                    spot={item}
+                    selected={
+                      selectedResult?.kind === 'post' &&
+                      selectedResult.id === item.postId
+                    }
+                    variant="desktopSearch"
+                    onPress={() => handleSelectPost(item.rawPost)}
                   />
                 ) : (
-                  <View style={styles.listStack}>
-                    {rankedEvents.map(item => (
-                      <ResultCard
-                        key={`event-${item.event.id}`}
-                        eyebrow="PROMOTED EVENT"
-                        title={item.event.title}
-                        body={item.event.description}
-                        meta={`${formatDateLabel(item.event.startTime)} • ${formatDistanceLabel(
-                          item.distanceKm
-                        )}`}
-                        selected={
-                          selectedResult?.kind === 'event' &&
-                          selectedResult.id === item.event.id
-                        }
-                        onPress={() => handleSelectEvent(item.event)}
-                      />
-                    ))}
-                  </View>
-                )}
-              </Section>
-            </Card>
-          </View>
-
-          <View style={[styles.resultsPane, splitResultsLayout && styles.resultsPaneWide]}>
-            <Card>
-              <Section
-                title="Spot posts"
-                subtitle="Recent location-based updates under the current filters. Click any item to sync it with the live map and detail panel."
-              >
-                {rankedPosts.length === 0 ? (
-                  <EmptyState
-                    title="No posts in view"
-                    subtitle="Adjust your filters or create a new location-based post."
+                  <EventCard
+                    key={item.id}
+                    event={item}
+                    selected={
+                      selectedResult?.kind === 'event' &&
+                      selectedResult.id === item.eventId
+                    }
+                    variant="desktopSearch"
+                    onPress={() => handleSelectEvent(item.rawEvent)}
                   />
-                ) : (
-                  <View style={styles.listStack}>
-                    {rankedPosts.map(item => (
-                      <ResultCard
-                        key={item.post.id}
-                        eyebrow={formatCategoryLabel(item.post.category).toUpperCase()}
-                        title={formatLocationLabel(item.post)}
-                        body={item.post.text}
-                        meta={`${formatTimestampLabel(item.createdAtMs)} • ${formatDistanceLabel(
-                          item.distanceKm
-                        )}`}
-                        selected={
-                          selectedResult?.kind === 'post' &&
-                          selectedResult.id === item.post.id
-                        }
-                        onPress={() => handleSelectPost(item.post)}
-                      />
-                    ))}
-                  </View>
-                )}
-              </Section>
-            </Card>
-          </View>
+                )
+              )}
+            </ScrollView>
+            )}
+        </Card>
+
+        <View style={styles.mapColumn}>
+          <Card
+            style={[
+              styles.mapCard,
+              hasWorkspaceColumns && styles.mapCardWide,
+              workspaceHeight ? { height: workspaceHeight } : null,
+            ]}
+          >
+            <View style={styles.mapSurfaceWrap}>
+              <ExploreMapSurface
+                posts={filteredPosts}
+                events={filteredEvents}
+                selectedResult={selectedResult}
+                browserLocation={browserLocation}
+                onSelectPost={handleSelectPost}
+                onSelectEvent={handleSelectEvent}
+                style={[
+                  workspaceHeight
+                    ? {
+                        height: Math.max(620, workspaceHeight - 28),
+                      }
+                    : styles.mapSurface,
+                  !workspaceHeight && hasWorkspaceColumns && styles.mapSurfaceWide,
+                ]}
+              />
+
+              <View style={styles.mapOverlayTopRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setMapSearchAsMove(current => !current)}
+                  style={({ pressed }) => [
+                    styles.mapOverlayChip,
+                    mapSearchAsMove && styles.mapOverlayChipActive,
+                    pressed && styles.desktopFilterChipPressed,
+                  ]}
+                >
+                  <Text style={styles.mapOverlayChipIcon}>⌖</Text>
+                  <Text
+                    style={[
+                      styles.mapOverlayChipText,
+                      mapSearchAsMove && styles.mapOverlayChipTextActive,
+                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {language === 'ar' ? 'ابحث عند تحريك الخريطة' : 'Search as I move the map'}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={handleShowResultsList}
+                  style={({ pressed }) => [
+                    styles.mapOverlayChip,
+                    pressed && styles.desktopFilterChipPressed,
+                  ]}
+                >
+                  <Text style={styles.mapOverlayChipIcon}>≡</Text>
+                  <Text
+                    style={[
+                      styles.mapOverlayChipText,
+                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {language === 'ar' ? 'إظهار القائمة' : 'Show list'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.mapOverlayControlRail}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={handleShareBrowserLocation}
+                  style={({ pressed }) => [
+                    styles.mapControlButton,
+                    pressed && styles.desktopFilterChipPressed,
+                  ]}
+                >
+                  <Text style={styles.mapControlButtonText}>⌖</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.mapLegendFloating}>
+                <View style={[styles.mapLegendChip, { flexDirection: getRowDirection() }]}>
+                  <View style={[styles.legendDot, styles.legendDotPost]} />
+                  <Text
+                    style={[
+                      styles.mapLegendChipText,
+                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {language === 'ar' ? 'الأماكن الشائعة' : 'Popular'}
+                  </Text>
+                </View>
+                <View style={[styles.mapLegendChip, { flexDirection: getRowDirection() }]}>
+                  <View style={[styles.legendDot, styles.legendDotEvent]} />
+                  <Text
+                    style={[
+                      styles.mapLegendChipText,
+                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {language === 'ar' ? 'الفعاليات المروجة' : 'Promoted'}
+                  </Text>
+                </View>
+                <View style={[styles.mapLegendChip, { flexDirection: getRowDirection() }]}>
+                  <View style={[styles.legendDot, styles.legendDotLocation]} />
+                  <Text
+                    style={[
+                      styles.mapLegendChipText,
+                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {language === 'ar' ? 'اليوم' : 'Event today'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </Card>
         </View>
       </View>
     </ScreenContainer>
@@ -1281,262 +1529,477 @@ export function ExploreScreen() {
 
 const styles = StyleSheet.create({
   content: {
+    width: '100%',
+    alignSelf: 'center',
     paddingBottom: spacing.xxxl,
-  },
-  contentDesktop: {
-    paddingBottom: spacing.xxxl + spacing.lg,
-  },
-  stack: {
-    gap: spacing.lg,
-  },
-  stackDesktop: {
-    gap: spacing.xl,
-  },
-  overviewGrid: {
-    gap: spacing.lg,
-  },
-  overviewGridWide: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-  },
-  overviewPrimaryColumn: {
-    gap: spacing.lg,
-  },
-  overviewPrimaryColumnWide: {
-    flex: 1.15,
-    minWidth: 0,
-  },
-  overviewSecondaryColumn: {
-    gap: spacing.lg,
-  },
-  overviewSecondaryColumnWide: {
-    flex: 0.9,
-    minWidth: 320,
-    maxWidth: 420,
-  },
-  banner: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
-    padding: spacing.lg,
-    gap: spacing.xs,
-  },
-  bannerWarning: {
-    borderColor: '#F1DEB3',
-    backgroundColor: colors.warningSoft,
-  },
-  bannerSuccess: {
-    borderColor: '#BDE4CF',
-    backgroundColor: colors.successSoft,
-  },
-  bannerTitle: {
-    ...typography.button,
-    color: colors.text,
-  },
-  bannerBody: {
-    ...typography.bodyMuted,
-  },
-  locationActions: {
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  locationActionsWide: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  filterRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  filterRowCompact: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  metricRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  summaryResult: {
-    marginTop: spacing.sm,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    gap: spacing.xs,
-  },
-  summaryResultLabel: {
-    ...typography.label,
-    color: colors.textSubtle,
-  },
-  summaryResultText: {
-    ...typography.body,
-  },
-  summaryCard: {
-    flex: 1,
-  },
-  summaryPlaceholder: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
-    padding: spacing.lg,
-    gap: spacing.xs,
-  },
-  summaryPlaceholderTitle: {
-    ...typography.button,
-    color: colors.text,
-  },
-  summaryPlaceholderText: {
-    ...typography.bodyMuted,
-  },
-  listStack: {
-    gap: spacing.sm,
-  },
-  liveGrid: {
-    gap: spacing.lg,
-  },
-  liveGridWide: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  mapColumn: {
-    minWidth: 0,
-  },
-  mapColumnWide: {
-    flex: 1.45,
-    minWidth: 440,
-  },
-  mapColumnDesktop: {
-    flex: 1.6,
-  },
-  resultsGrid: {
-    gap: spacing.lg,
-  },
-  resultsGridWide: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  resultsPane: {
-    flex: 1,
-    minWidth: 320,
-  },
-  resultsPaneWide: {
-    minWidth: 0,
-  },
-  detailColumn: {
-    minWidth: 0,
-  },
-  detailColumnWide: {
-    flex: 0.92,
-    minWidth: 360,
-    maxWidth: 430,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.md,
   },
-  legendItem: {
+  contentWebCompact: {
+    paddingTop: spacing.lg,
+    paddingHorizontal: webDesktopLayout.horizontalPadding - spacing.lg,
+    maxWidth: webDesktopLayout.maxWidth + 120,
+  },
+  contentWebWide: {
+    paddingHorizontal: webDesktopLayout.horizontalPadding,
+  },
+  toolbarCard: {
+    ...webDesktopSupportSurface,
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  searchToolbarRow: {
+    gap: spacing.sm,
+  },
+  searchToolbarRowWide: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
+  searchSystemShell: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingLeft: spacing.lg,
+    paddingRight: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  searchFieldBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+    paddingVertical: spacing.xs,
+  },
+  searchFieldLabel: {
+    ...typography.label,
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.16,
+    textTransform: 'none',
+  },
+  searchFieldInput: {
+    ...typography.body,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    margin: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    backgroundColor: 'transparent',
+  },
+  searchFieldDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: colors.border,
+  },
+  toolbarTargetButton: {
+    ...webDesktopControl,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toolbarTargetButtonText: {
+    color: colors.textMuted,
+    fontSize: 18,
+    lineHeight: 18,
+  },
+  toolbarIconButtonPressed: {
+    opacity: 0.86,
+    backgroundColor: colors.surfaceMuted,
+  },
+  toolbarSearchButton: {
+    minWidth: 102,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    shadowColor: colors.primaryPressed,
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  toolbarSearchButtonPressed: {
+    backgroundColor: colors.primaryPressed,
+  },
+  toolbarSearchButtonText: {
+    color: colors.surface,
+    fontSize: 22,
+    lineHeight: 22,
+  },
+  toolbarQuickActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  toolbarActionButton: {
+    ...webDesktopControl,
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+  },
+  desktopFilterRail: {
+    gap: spacing.sm,
+    paddingVertical: 2,
+  },
+  desktopFilterChip: {
+    ...webDesktopChip,
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: spacing.sm + 1,
+    paddingHorizontal: spacing.md + 2,
+  },
+  desktopFilterChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF4F0',
+  },
+  desktopFilterChipPressed: {
+    opacity: 0.88,
+  },
+  desktopFilterGlyph: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 14,
+  },
+  desktopFilterGlyphActive: {
+    color: colors.primaryPressed,
+  },
+  desktopFilterText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  desktopFilterTextActive: {
+    color: colors.primaryPressed,
+  },
+  extraFiltersWrap: {
+    paddingTop: 2,
+  },
+  filterBar: {
+    flex: 1,
+  },
+  toolbarInfoRow: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+    minHeight: 22,
+  },
+  toolbarInfoText: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  toolbarInfoTextSuccess: {
+    color: colors.success,
+  },
+  toolbarInfoTextWarning: {
+    color: colors.warning,
+  },
+  toolbarInfoTextPrimary: {
+    flexShrink: 1,
+    color: colors.textMuted,
+  },
+  toolbarInfoAction: {
+    paddingVertical: 2,
+  },
+  issueStripAction: {
+    paddingVertical: 2,
+  },
+  issueStripActionPressed: {
+    opacity: 0.7,
+  },
+  issueStripActionText: {
+    ...typography.caption,
+    color: colors.primaryPressed,
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  resultsMetaRow: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    paddingHorizontal: spacing.xs,
+    paddingTop: 2,
+  },
+  resultsMetaCopy: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  resultsCountHeadline: {
+    ...typography.sectionTitle,
+    ...webDesktopSectionTitle,
+    color: colors.text,
+  },
+  resultsContextText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  resultsMetaActions: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  sortLabelText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  sortControl: {
+    ...webDesktopControl,
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.md,
+  },
+  sortControlText: {
+    ...typography.caption,
+    color: colors.text,
+    fontWeight: '700',
+  },
+  sortControlCaret: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    fontWeight: '700',
+  },
+  workspace: {
+    gap: spacing.md,
+  },
+  workspaceWide: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: spacing.md,
+  },
+  resultsCard: {
+    ...webDesktopSurface,
+    minHeight: 0,
+    padding: 0,
+    overflow: 'hidden',
+  },
+  resultsCardWide: {
+    flex: 1.08,
+    minWidth: 700,
+    maxWidth: 920,
+  },
+  panelScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  resultsList: {
+    paddingVertical: spacing.xs,
+    paddingBottom: spacing.md,
+  },
+  inlineDetailPanel: {
+    margin: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceRaised,
+    gap: spacing.sm,
+  },
+  inlineDetailTopBar: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  inlineDetailHeading: {
+    ...typography.sectionTitle,
+    flex: 1,
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 23,
+  },
+  inlineDetailCollapseButton: {
+    minHeight: 34,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+  },
+  mapColumn: {
+    minWidth: 0,
+    flex: 0.92,
+  },
+  mapCard: {
+    ...webDesktopSurface,
+    minHeight: 0,
+    padding: 0,
+    overflow: 'hidden',
+  },
+  mapCardWide: {
+    flex: 0.92,
+    minWidth: 500,
+    maxWidth: 680,
+  },
+  mapSurfaceWrap: {
+    flex: 1,
+    minHeight: 0,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: webDesktopSurface.borderRadius,
+    backgroundColor: colors.surfaceMuted,
+  },
+  mapSurface: {
+    height: 620,
+  },
+  mapSurfaceWide: {
+    height: 760,
+  },
+  mapOverlayTopRow: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.md,
+    right: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  mapOverlayChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm + 1,
+    paddingHorizontal: spacing.md + 2,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(229, 220, 209, 0.95)',
+    backgroundColor: 'rgba(255, 252, 248, 0.97)',
+    shadowColor: '#2A2119',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  mapOverlayChipActive: {
+    borderColor: colors.borderStrong,
+    backgroundColor: '#FFFDFB',
+  },
+  mapOverlayChipIcon: {
+    color: colors.textMuted,
+    fontSize: 15,
+    lineHeight: 16,
+  },
+  mapOverlayChipText: {
+    ...typography.caption,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  mapOverlayChipTextActive: {
+    color: colors.text,
+  },
+  mapOverlayControlRail: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    gap: spacing.sm,
+  },
+  mapControlButton: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(229, 220, 209, 0.95)',
+    backgroundColor: 'rgba(255, 252, 248, 0.97)',
+    shadowColor: '#2A2119',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  mapControlButtonText: {
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 18,
+  },
+  mapLegendFloating: {
+    position: 'absolute',
+    left: spacing.md,
+    bottom: spacing.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  mapLegendChip: {
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md + 2,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(229, 220, 209, 0.95)',
+    backgroundColor: 'rgba(255, 252, 248, 0.97)',
+    shadowColor: '#2A2119',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+  },
   legendDot: {
-    width: 12,
-    height: 12,
+    width: 8,
+    height: 8,
     borderRadius: radius.pill,
   },
   legendDotPost: {
     backgroundColor: colors.primary,
   },
   legendDotEvent: {
-    backgroundColor: '#F59E0B',
+    backgroundColor: colors.warning,
   },
   legendDotLocation: {
-    backgroundColor: colors.success,
+    backgroundColor: colors.info,
   },
-  legendLabel: {
+  mapLegendChipText: {
     ...typography.caption,
-    color: colors.textMuted,
+    color: colors.text,
+    fontWeight: '600',
   },
-  dataCard: {
-    borderRadius: radius.lg,
+  inlineNote: {
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    minHeight: 148,
+    backgroundColor: colors.surfaceRaised,
+    padding: spacing.sm + 2,
   },
-  dataCardSelected: {
-    borderColor: '#C9DBF6',
-    backgroundColor: colors.primarySoft,
-  },
-  dataCardPressed: {
-    opacity: 0.92,
-  },
-  dataEyebrow: {
-    ...typography.label,
-    color: colors.primary,
-  },
-  dataTitle: {
-    ...typography.sectionTitle,
-  },
-  dataBody: {
-    ...typography.body,
-  },
-  dataMeta: {
+  inlineNoteText: {
     ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '600',
   },
-  detailCard: {
-    minHeight: 260,
-  },
-  detailCardWide: {
-    minHeight: 620,
-  },
-  detailStack: {
-    gap: spacing.md,
-  },
-  mapSurface: {
-    height: 460,
-  },
-  mapSurfaceWide: {
-    height: 540,
-  },
-  mapSurfaceDesktop: {
-    height: 620,
-  },
-  detailEyebrow: {
-    ...typography.label,
-    color: colors.primary,
-  },
-  detailTitle: {
-    ...typography.title,
-  },
-  detailBody: {
-    ...typography.body,
+  filterRowCompact: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs + 2,
   },
   actionGrid: {
     gap: spacing.sm,
   },
   commentInput: {
-    minHeight: 92,
+    minHeight: 84,
     textAlignVertical: 'top',
+  },
+  listStack: {
+    gap: spacing.sm,
   },
   commentCard: {
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
-    padding: spacing.lg,
-    gap: spacing.sm,
+    backgroundColor: colors.surfaceRaised,
+    padding: spacing.md,
+    gap: spacing.xs + 2,
   },
   commentHeader: {
     flexDirection: 'row',
@@ -1554,11 +2017,12 @@ const styles = StyleSheet.create({
   },
   commentTimestamp: {
     ...typography.caption,
+    color: colors.textSubtle,
   },
   commentActionsInline: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   commentActionText: {
     ...typography.caption,
@@ -1573,7 +2037,7 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   reportNoteInput: {
-    minHeight: 110,
+    minHeight: 92,
     textAlignVertical: 'top',
   },
 });

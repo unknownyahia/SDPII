@@ -47,11 +47,18 @@ function mapEventDocument(
 
   return {
     id: docSnap.id,
+    placeId: typeof data.placeId === 'string' ? data.placeId : null,
     title: data.title,
     description: data.description,
     category: isSpotCategory(data.category) ? data.category : 'event',
     locationName:
       typeof data.locationName === 'string' ? data.locationName : null,
+    venueName:
+      typeof data.venueName === 'string' ? data.venueName : null,
+    organizerName:
+      typeof data.organizerName === 'string' ? data.organizerName : null,
+    heroImageUrl:
+      typeof data.heroImageUrl === 'string' ? data.heroImageUrl : null,
     lat: data.lat,
     lng: data.lng,
     startTime: typeof data.startTime === 'string' ? data.startTime : '',
