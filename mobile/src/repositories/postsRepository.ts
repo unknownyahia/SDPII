@@ -8,19 +8,10 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../firebase/firebase';
-import type { CreateSpotPostInput, SpotCategory, SpotPost } from '../types/post';
+import { isDisplayCategoryId, isSpotCategory } from '../constants/categories';
+import type { CreateSpotPostInput, SpotPost } from '../types/post';
 
 const POSTS_COLLECTION = 'posts';
-const SPOT_CATEGORIES: SpotCategory[] = [
-  'fishing',
-  'event',
-  'sighting',
-  'weather',
-];
-
-function isSpotCategory(value: unknown): value is SpotCategory {
-  return typeof value === 'string' && SPOT_CATEGORIES.includes(value as SpotCategory);
-}
 
 function mapPostDocument(
   docSnap: QueryDocumentSnapshot<DocumentData>
@@ -43,6 +34,9 @@ function mapPostDocument(
       typeof data.heroImageUrl === 'string' ? data.heroImageUrl : null,
     text: typeof data.text === 'string' ? data.text : '',
     category: isSpotCategory(data.category) ? data.category : undefined,
+    displayCategory: isDisplayCategoryId(data.displayCategory)
+      ? data.displayCategory
+      : null,
     lat: data.lat,
     lng: data.lng,
     locationName:

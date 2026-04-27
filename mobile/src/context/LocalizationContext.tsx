@@ -48,20 +48,28 @@ export function LocalizationProvider({
   const { user } = useAuth();
   const [language, setLanguage] = React.useState<AppLanguage>(getCurrentLanguage());
   const [hasStoredPreference, setHasStoredPreference] = React.useState(false);
+  const [isStorageHydrated, setIsStorageHydrated] = React.useState(false);
 
   React.useEffect(() => {
     let isMounted = true;
 
     AsyncStorage.getItem(LANGUAGE_STORAGE_KEY)
       .then(storedLanguage => {
-        if (!isMounted || (storedLanguage !== 'en' && storedLanguage !== 'ar')) {
+        if (!isMounted) {
           return;
         }
 
-        setHasStoredPreference(true);
-        setLanguage(storedLanguage);
+        if (storedLanguage === 'en' || storedLanguage === 'ar') {
+          setHasStoredPreference(true);
+          setLanguage(storedLanguage);
+        }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (isMounted) {
+          setIsStorageHydrated(true);
+        }
+      });
 
     return () => {
       isMounted = false;
@@ -70,11 +78,13 @@ export function LocalizationProvider({
 
   React.useEffect(() => {
     setCurrentLanguage(language);
-    AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, language).catch(() => undefined);
-  }, [language]);
+    if (isStorageHydrated && hasStoredPreference) {
+      AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, language).catch(() => undefined);
+    }
+  }, [hasStoredPreference, isStorageHydrated, language]);
 
   React.useEffect(() => {
-    if (!user?.id) {
+    if (!isStorageHydrated || !user?.id) {
       return undefined;
     }
 
@@ -88,10 +98,11 @@ export function LocalizationProvider({
       },
       () => undefined
     );
-  }, [hasStoredPreference, user?.email, user?.id]);
+  }, [hasStoredPreference, isStorageHydrated, user?.email, user?.id]);
 
   const setLanguagePreference = React.useCallback(async (nextLanguage: AppLanguage) => {
     setHasStoredPreference(true);
+    setCurrentLanguage(nextLanguage);
     setLanguage(nextLanguage);
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
   }, []);

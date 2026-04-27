@@ -5,6 +5,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -12,12 +13,12 @@ import { useNavigation } from '@react-navigation/native';
 
 import { LoadingState } from '../../components/ui/LoadingState';
 import { ScreenContainer } from '../../components/ui/ScreenContainer';
+import { AdminConsolePanel } from '../../components/profile/AdminConsolePanel';
+import { LeaderboardPanel } from '../../components/profile/LeaderboardPanel';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalization } from '../../context/LocalizationContext';
 import { subscribeToPosts } from '../../repositories/postsRepository';
-import {
-  observeFavoritePostIds,
-} from '../../services/favoriteService';
+import { observeFavoritePostIds } from '../../services/favoriteService';
 import {
   markUserNotificationRead,
   observeNotifications,
@@ -29,14 +30,12 @@ import {
   saveCurrentUserProfile,
 } from '../../services/profileService';
 import { logoutUser } from '../../services/authService';
-import {
-  observeUserSubscription,
-} from '../../services/subscriptionService';
+import { observeUserSubscription } from '../../services/subscriptionService';
 import {
   buildDiscoverySpotItems,
   getTimestampMs,
 } from '../../services/discoveryService';
-import { colors, radius, spacing, typography } from '../../theme/designSystem';
+import { colors, typography } from '../../theme/designSystem';
 import {
   getBlockedDataMessage,
   getErrorMessage,
@@ -55,11 +54,8 @@ type ProfileCopy = {
   roleLabel: string;
   planLabel: string;
   statsXp: string;
-  statsXpHint: string;
   statsSaves: string;
-  statsSavesHint: string;
   statsUnread: string;
-  statsUnreadHint: string;
   savedTitle: string;
   noMoreSavedTitle: string;
   noMoreSavedBody: string;
@@ -76,8 +72,6 @@ type ProfileCopy = {
   privacyPrivate: string;
   saveSettings: string;
   signOut: string;
-  promoTitle: string;
-  promoBody: string;
   retry: string;
   signInRequired: string;
   defaultUsername: string;
@@ -88,6 +82,9 @@ type ProfileCopy = {
   activityFallbackOneSubtitle: string;
   activityFallbackTwoTitle: string;
   activityFallbackTwoSubtitle: string;
+  privacyDescription: string;
+  settingsHint: string;
+  savedSectionHint: string;
   daysAgo: (value: number) => string;
 };
 
@@ -128,12 +125,9 @@ function getCopy(language: AppLanguage): ProfileCopy {
       viewAll: 'عرض الكل',
       roleLabel: 'الدور',
       planLabel: 'الخطة',
-      statsXp: 'نقاط XP',
-      statsXpHint: 'استمر في الاستكشاف!',
+      statsXp: 'XP',
       statsSaves: 'المحفوظات',
-      statsSavesHint: 'أماكن تحبها',
       statsUnread: 'غير المقروء',
-      statsUnreadHint: 'إشعارات جديدة',
       savedTitle: 'الأماكن المحفوظة',
       noMoreSavedTitle: 'لا توجد أماكن محفوظة إضافية',
       noMoreSavedBody: 'احفظ الأماكن التي تعجبك لتظهر هنا.',
@@ -144,24 +138,25 @@ function getCopy(language: AppLanguage): ProfileCopy {
       planSettingLabel: 'الخطة',
       languageLabel: 'اللغة',
       privacyLabel: 'وضع الخصوصية',
-      languageEnglish: 'English (US)',
+      languageEnglish: 'الإنجليزية',
       languageArabic: 'العربية',
       privacyPublic: 'عام',
       privacyPrivate: 'خاص',
       saveSettings: 'حفظ الإعدادات',
       signOut: 'تسجيل الخروج',
-      promoTitle: 'شارك مع المزيد من السكان',
-      promoBody: 'روّج تحديثاتك للوصول إلى مجتمع أكبر في قطر.',
       retry: 'إعادة المحاولة',
       signInRequired: 'سجّل الدخول لإدارة إعدادات الحساب.',
       defaultUsername: 'مستخدم Spots',
-      fallbackSavedTitle: 'Lusail Boulevard Bites',
+      fallbackSavedTitle: 'مأكولات بوليفارد لوسيل',
       fallbackSavedMeta: 'لوسيل • مأكولات ومشروبات',
       fallbackSavedDistance: '2.1 كم',
-      activityFallbackOneTitle: 'تم حفظ Sahara Walk Coffee',
-      activityFallbackOneSubtitle: 'قهوة • Aspire Zone',
+      activityFallbackOneTitle: 'تم حفظ قهوة ممشى الصحراء',
+      activityFallbackOneSubtitle: 'قهوة • منطقة أسباير',
       activityFallbackTwoTitle: 'فعالية جديدة بالقرب منك',
-      activityFallbackTwoSubtitle: 'Katara Family Lawn After Dinner Loop',
+      activityFallbackTwoSubtitle: 'جولة عائلية بعد العشاء في كتارا',
+      privacyDescription: 'اجعل حسابك عامًا أو خاصًا حسب تفضيلك.',
+      settingsHint: 'حدّث تفضيلاتك واحفظها هنا.',
+      savedSectionHint: 'أماكنك المفضلة والموصى بها لك.',
       daysAgo: value => `قبل ${value} يوم`,
     };
   }
@@ -172,11 +167,8 @@ function getCopy(language: AppLanguage): ProfileCopy {
     roleLabel: 'Role',
     planLabel: 'Plan',
     statsXp: 'XP',
-    statsXpHint: 'Keep exploring!',
     statsSaves: 'Saves',
-    statsSavesHint: 'Spots you love',
     statsUnread: 'Unread',
-    statsUnreadHint: 'New notifications',
     savedTitle: 'Saved Spots',
     noMoreSavedTitle: 'No more saved spots yet',
     noMoreSavedBody: 'Save places you love to see them here.',
@@ -193,11 +185,9 @@ function getCopy(language: AppLanguage): ProfileCopy {
     privacyPrivate: 'Private',
     saveSettings: 'Save Settings',
     signOut: 'Sign Out',
-    promoTitle: 'Share with more locals',
-    promoBody: 'Promote updates to reach more people around Qatar.',
     retry: 'Retry',
     signInRequired: 'Sign in to manage your account settings.',
-    defaultUsername: 'Spots User',
+    defaultUsername: 'Spots QA User',
     fallbackSavedTitle: 'Lusail Boulevard Bites',
     fallbackSavedMeta: 'Lusail • Food & Drinks',
     fallbackSavedDistance: '2.1 km away',
@@ -205,6 +195,9 @@ function getCopy(language: AppLanguage): ProfileCopy {
     activityFallbackOneSubtitle: 'Coffee • Aspire Zone',
     activityFallbackTwoTitle: 'New event nearby',
     activityFallbackTwoSubtitle: 'Katara Family Lawn After Dinner Loop',
+    privacyDescription: 'Choose whether your profile is public or private.',
+    settingsHint: 'Update your preferences and keep your account current.',
+    savedSectionHint: 'Your favorite places and fresh updates.',
     daysAgo: value => `${value} day${value === 1 ? '' : 's'} ago`,
   };
 }
@@ -274,7 +267,7 @@ function SectionHeader({
   const { getRowDirection, getTextAlign, isRTL } = useLocalization();
 
   return (
-    <View style={[styles.sectionHeader, { flexDirection: getRowDirection() }]}> 
+    <View style={[styles.sectionHeader, { flexDirection: getRowDirection() }]}>
       <Text
         style={[
           styles.sectionTitle,
@@ -298,24 +291,18 @@ function SectionHeader({
 
 function StatCard({
   icon,
-  value,
   label,
-  hint,
-  emphasize,
+  value,
 }: {
   icon: string;
-  value: string;
   label: string;
-  hint: string;
-  emphasize?: boolean;
+  value: string;
 }) {
   const { getTextAlign, isRTL } = useLocalization();
 
   return (
     <View style={styles.statCard}>
-      <View style={[styles.statIconWrap, emphasize && styles.statIconWrapEmphasis]}>
-        <Text style={[styles.statIcon, emphasize && styles.statIconEmphasis]}>{icon}</Text>
-      </View>
+      <Text style={styles.statIcon}>{icon}</Text>
       <Text
         style={[
           styles.statValue,
@@ -332,387 +319,299 @@ function StatCard({
       >
         {label}
       </Text>
-      <Text
-        style={[
-          styles.statHint,
-          { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-        ]}
-        numberOfLines={1}
-      >
-        {hint}
-      </Text>
     </View>
   );
 }
 
-function SettingsRow({
-  icon,
-  label,
-  value,
-  onPress,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  onPress?: () => void;
-}) {
-  const { getRowDirection, getTextAlign, isRTL } = useLocalization();
+function ActivityIconBubble({ icon }: { icon: 'save' | 'bell' }) {
+  if (icon === 'save') {
+    return (
+      <View style={[styles.activityIconBubble, styles.activityIconBubbleSave]}>
+        <Text style={styles.activityIconGlyph}>⌑</Text>
+      </View>
+    );
+  }
 
   return (
-    <Pressable
-      accessibilityRole={onPress ? 'button' : undefined}
-      disabled={!onPress}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.settingRow,
-        pressed && onPress && styles.actionPressed,
-      ]}
-    >
-      <View style={[styles.settingLeft, { flexDirection: getRowDirection() }]}> 
-        <Text style={styles.settingIcon}>{icon}</Text>
-        <Text
-          style={[
-            styles.settingLabel,
-            { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-          ]}
-        >
-          {label}
-        </Text>
-      </View>
-
-      <View style={[styles.settingRight, { flexDirection: getRowDirection() }]}> 
-        <Text
-          style={[
-            styles.settingValue,
-            { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-          ]}
-          numberOfLines={1}
-        >
-          {value}
-        </Text>
-        <Text style={styles.settingChevron}>{isRTL ? '‹' : '›'}</Text>
-      </View>
-    </Pressable>
+    <View style={[styles.activityIconBubble, styles.activityIconBubbleBell]}>
+      <BellGlyph />
+    </View>
   );
 }
 
 export function ProfileScreen() {
   const { user } = useAuth();
   const {
-    getPlanLevelLabel,
-    getRowDirection,
-    getTextAlign,
-    isRTL,
     language,
+    isRTL,
+    getTextAlign,
+    getRowDirection,
+    getRoleLabel,
+    getPlanLevelLabel,
     setLanguagePreference,
-    t,
   } = useLocalization();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
-
   const copy = React.useMemo(() => getCopy(language), [language]);
 
-  const [loadingProfile, setLoadingProfile] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
-  const [logoutLoading, setLogoutLoading] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [setupIssue, setSetupIssue] = React.useState<string | null>(null);
 
-  const [role, setRole] = React.useState<'user' | 'admin' | 'organization'>('user');
-  const [subscription, setSubscription] = React.useState<UserSubscription | null>(null);
   const [username, setUsername] = React.useState('');
-  const [email, setEmail] = React.useState<string | null>(user?.email ?? null);
+  const [email, setEmail] = React.useState('');
   const [bio, setBio] = React.useState('');
-  const [privacyMode, setPrivacyMode] = React.useState(false);
-  const [profileLanguage, setProfileLanguage] = React.useState<AppLanguage>('en');
-  const [xp, setXp] = React.useState(0);
-
-  const [posts, setPosts] = React.useState<SpotPost[]>([]);
+  const [privacyMode, setPrivacyMode] = React.useState<'public' | 'private'>('public');
+  const [languageValue, setLanguageValue] = React.useState<AppLanguage>(language);
+  const [role, setRole] = React.useState<'user' | 'admin' | 'organization'>('user');
+  const [profileXp, setProfileXp] = React.useState(0);
+  const [subscription, setSubscription] = React.useState<UserSubscription | null>(null);
   const [favoritePostIds, setFavoritePostIds] = React.useState<string[]>([]);
+  const [posts, setPosts] = React.useState<SpotPost[]>([]);
   const [notifications, setNotifications] = React.useState<AppNotification[]>([]);
-  const [readingNotificationId, setReadingNotificationId] = React.useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = React.useState(false);
+  const [signingOut, setSigningOut] = React.useState(false);
 
-  const [accountDataIssue, setAccountDataIssue] = React.useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = React.useState(0);
-
-  const handleAccountDataIssue = React.useCallback((error: unknown, fallbackMessage: string) => {
+  const handleSetupIssue = React.useCallback((error: unknown, fallbackMessage: string) => {
     const nextMessage = isDataAccessBlockedError(error)
-      ? getBlockedDataMessage('one or more Profile feeds')
+      ? getBlockedDataMessage(language === 'ar' ? 'بيانات الملف الشخصي' : 'profile data')
       : getErrorMessage(error, fallbackMessage);
 
-    setAccountDataIssue(current => current ?? nextMessage);
-  }, []);
+    setSetupIssue(current => current ?? nextMessage);
+  }, [language]);
 
   React.useEffect(() => {
     if (!user) {
-      setLoadingProfile(false);
+      setLoading(false);
       return;
     }
 
-    setLoadingProfile(true);
-    let unsubscribe: () => void = () => {};
+    const unsubscribeProfile = observeCurrentUserProfile(
+      { user },
+      profile => {
+        setUsername(profile.username || copy.defaultUsername);
+        setEmail(profile.email || user.email || 'qa.user@spots.demo');
+        setBio(profile.bio || '');
+        setPrivacyMode(profile.privacyMode ? 'private' : 'public');
+        setRole(profile.role);
+        setProfileXp(profile.xp ?? 0);
+        setLoading(false);
+      },
+      error => {
+        handleSetupIssue(error, 'Failed to load your profile.');
+        setLoading(false);
+      }
+    );
 
-    try {
-      unsubscribe = observeCurrentUserProfile(
-        { user },
-        profile => {
-          setRole(profile.role);
-          setUsername(profile.username);
-          setEmail(profile.email);
-          setBio(profile.bio);
-          setXp(profile.xp);
-          setProfileLanguage(profile.language);
-          setPrivacyMode(profile.privacyMode);
-          setLoadingProfile(false);
-        },
-        error => {
-          handleAccountDataIssue(error, 'Failed to load profile details.');
-          setLoadingProfile(false);
-        }
-      );
-    } catch (error) {
-      handleAccountDataIssue(error, 'Failed to load profile details.');
-      setLoadingProfile(false);
-    }
-
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken, user]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeUserSubscription(
-      user?.id,
+    const unsubscribeSubscription = observeUserSubscription(
+      user.id,
       nextSubscription => {
         setSubscription(nextSubscription.userId ? nextSubscription : null);
       },
       error => {
-        handleAccountDataIssue(error, 'Failed to load subscription details.');
+        handleSetupIssue(error, 'Failed to load your subscription.');
       }
     );
 
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken, user?.id]);
+    const unsubscribeFavorites = observeFavoritePostIds(
+      user.id,
+      ids => {
+        setFavoritePostIds(ids);
+      },
+      error => {
+        handleSetupIssue(error, 'Failed to load your saved spots.');
+      }
+    );
+
+    const unsubscribePosts = subscribeToPosts(
+      nextPosts => {
+        setPosts(nextPosts);
+      },
+      error => {
+        handleSetupIssue(error, 'Failed to load recent spots.');
+      }
+    );
+
+    const unsubscribeNotifications = observeNotifications(
+      user.id,
+      nextNotifications => {
+        setNotifications(nextNotifications);
+      },
+      error => {
+        handleSetupIssue(error, 'Failed to load your notifications.');
+      }
+    );
+
+    return () => {
+      unsubscribeProfile();
+      unsubscribeSubscription();
+      unsubscribeFavorites();
+      unsubscribePosts();
+      unsubscribeNotifications();
+    };
+  }, [copy.defaultUsername, handleSetupIssue, user]);
 
   React.useEffect(() => {
-    const unsubscribe = observeFavoritePostIds(
-      user?.id,
-      setFavoritePostIds,
-      error => {
-        handleAccountDataIssue(error, 'Failed to load favorites.');
-      }
-    );
+    setLanguageValue(language);
+  }, [language]);
 
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken, user?.id]);
-
-  React.useEffect(() => {
-    const unsubscribe = subscribeToPosts(
-      setPosts,
-      error => {
-        handleAccountDataIssue(error, 'Failed to load saved spots.');
-      }
-    );
-
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeNotifications(
-      user?.id,
-      setNotifications,
-      error => {
-        handleAccountDataIssue(error, 'Failed to load notifications.');
-      }
-    );
-
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken, user?.id]);
-
-  const favoritePosts = React.useMemo(() => {
+  const savedSpots = React.useMemo<SavedSpotPreview[]>(() => {
     const favoriteSet = new Set(favoritePostIds);
-    return posts.filter(post => favoriteSet.has(post.id));
-  }, [favoritePostIds, posts]);
 
-  const savedSpotItems = React.useMemo(
-    () =>
-      uniqueSpotItemsByPlace(
-        buildDiscoverySpotItems(favoritePosts, {
-          favoritePostIds,
-        })
-      ),
-    [favoritePostIds, favoritePosts]
-  );
+    const discoverySpots = buildDiscoverySpotItems(posts, {
+      favoritePostIds,
+      searchQuery: '',
+      language,
+    });
 
-  const unreadNotificationsCount = React.useMemo(
-    () => notifications.filter(notification => !notification.isRead).length,
+    return uniqueSpotItemsByPlace(
+      discoverySpots.filter(spot => favoriteSet.has(spot.postId))
+    )
+      .slice(0, 3)
+      .map(spot => ({
+        id: spot.postId,
+        title: spot.title,
+        meta: `${spot.locationLabel} • ${spot.categoryLabel}`,
+        distance: spot.distanceLabel,
+        imageUrl: spot.hero.imageUrl || SAVED_SPOT_FALLBACK_IMAGE,
+      }));
+  }, [favoritePostIds, language, posts]);
+
+  const unreadCount = React.useMemo(
+    () => notifications.filter(item => !item.isRead).length,
     [notifications]
   );
 
-  const primarySavedSpot = React.useMemo<SavedSpotPreview>(() => {
-    const item = savedSpotItems[0];
-    if (!item) {
-      return {
-        id: 'fallback-saved',
-        title: copy.fallbackSavedTitle,
-        meta: copy.fallbackSavedMeta,
-        distance: copy.fallbackSavedDistance,
-        imageUrl: SAVED_SPOT_FALLBACK_IMAGE,
-      };
-    }
-
-    return {
-      id: item.id,
-      title: item.title,
-      meta: `${item.areaLabel} • ${item.categoryLabel}`,
-      distance: item.distanceLabel,
-      imageUrl: item.hero.imageUrl || SAVED_SPOT_FALLBACK_IMAGE,
-    };
-  }, [copy.fallbackSavedDistance, copy.fallbackSavedMeta, copy.fallbackSavedTitle, savedSpotItems]);
-
-  const activityRows = React.useMemo<ActivityPreview[]>(() => {
+  const activityItems = React.useMemo<ActivityPreview[]>(() => {
     if (notifications.length > 0) {
-      return notifications.slice(0, 2).map((notification, index) => {
-        const title =
-          notification.type === 'comment_on_post'
-            ? copy.activityFallbackTwoTitle
-            : copy.activityFallbackOneTitle;
-
-        const subtitle =
-          notification.message ||
-          (notification.type === 'comment_on_post'
-            ? copy.activityFallbackTwoSubtitle
-            : copy.activityFallbackOneSubtitle);
-
-        return {
-          id: `activity-${notification.id}`,
-          title,
-          subtitle,
-          recency: formatRecencyLabel(notification.createdAt, copy),
-          imageUrl: ACTIVITY_IMAGES[index % ACTIVITY_IMAGES.length],
-          icon: notification.type === 'comment_on_post' ? 'bell' : 'save',
-          notificationId: notification.id,
-          unread: !notification.isRead,
-        };
-      });
+      return notifications.slice(0, 2).map((item, index) => ({
+        id: item.id,
+        title: item.message || copy.activityFallbackOneTitle,
+        subtitle:
+          item.actorLabel ||
+          (index % 2 === 0 ? copy.activityFallbackOneSubtitle : copy.activityFallbackTwoSubtitle),
+        recency: formatRecencyLabel(item.createdAt, copy),
+        imageUrl: ACTIVITY_IMAGES[index % ACTIVITY_IMAGES.length],
+        icon: item.type === 'like_on_post' ? 'bell' : 'save',
+        notificationId: item.id,
+        unread: !item.isRead,
+      }));
     }
 
-    return [
-      {
-        id: 'activity-fallback-one',
-        title: copy.activityFallbackOneTitle,
-        subtitle: copy.activityFallbackOneSubtitle,
-        recency: copy.daysAgo(2),
-        imageUrl: ACTIVITY_IMAGES[0],
-        icon: 'save',
-      },
-      {
-        id: 'activity-fallback-two',
-        title: copy.activityFallbackTwoTitle,
-        subtitle: copy.activityFallbackTwoSubtitle,
-        recency: copy.daysAgo(3),
-        imageUrl: ACTIVITY_IMAGES[1],
-        icon: 'bell',
-      },
-    ];
-  }, [
-    copy,
-    notifications,
-  ]);
+    return [];
+  }, [copy, notifications]);
 
-  const displayName = username || user?.displayInfo || copy.defaultUsername;
+  const xpValue = React.useMemo(() => {
+    return String(profileXp);
+  }, [profileXp]);
+
+  const roleLabel = getRoleLabel(role);
+  const planLabel = getPlanLevelLabel(subscription?.planLevel ?? 'free');
+  const displayName = username || copy.defaultUsername;
   const displayEmail = email || user?.email || 'qa.user@spots.demo';
-  const displayPlan = getPlanLevelLabel(subscription?.planLevel ?? 'free');
-  const displayRole = role === 'organization'
-    ? 'Organization'
-    : role === 'admin'
-      ? 'Admin'
-      : 'User';
 
-  const displayXp = xp > 0 ? xp : 125;
-  const displaySaves = favoritePosts.length > 0 ? favoritePosts.length : 12;
-  const displayUnread = unreadNotificationsCount > 0 ? unreadNotificationsCount : 3;
-
-  const languageValue = profileLanguage === 'ar' ? copy.languageArabic : copy.languageEnglish;
-  const privacyValue = privacyMode ? copy.privacyPrivate : copy.privacyPublic;
-
-  const handleRetry = React.useCallback(() => {
-    setAccountDataIssue(null);
-    setLoadingProfile(true);
-    setRefreshToken(current => current + 1);
-  }, []);
-
-  const openExplore = React.useCallback(() => {
+  const handleViewAllSaved = React.useCallback(() => {
     navigation.navigate('Explore');
   }, [navigation]);
 
-  const handleToggleLanguage = React.useCallback(() => {
-    setProfileLanguage(current => (current === 'ar' ? 'en' : 'ar'));
-  }, []);
+  const handleViewAllActivity = React.useCallback(() => {
+    navigation.navigate('Home');
+  }, [navigation]);
 
-  const handleTogglePrivacy = React.useCallback(() => {
-    setPrivacyMode(current => !current);
-  }, []);
-
-  const handleSaveSettings = React.useCallback(async () => {
-    setSaving(true);
-
-    try {
-      await saveCurrentUserProfile({
-        userId: user?.id,
-        username: displayName,
-        bio,
-        language: profileLanguage,
-        privacyMode,
-      });
-
-      await setLanguagePreference(profileLanguage);
-      showAlert(t('profile.savedAlertTitle'), t('profile.savedAlertBody'));
-    } catch (error: any) {
-      if (error instanceof ProfileValidationError) {
-        showAlert(t('profile.profileValidationTitle'), error.message);
-      } else {
-        showAlert(t('profile.saveErrorTitle'), error?.message ?? 'Failed to save settings.');
-      }
-    } finally {
-      setSaving(false);
-    }
-  }, [bio, displayName, privacyMode, profileLanguage, setLanguagePreference, t, user?.id]);
-
-  const handleSignOut = React.useCallback(async () => {
-    setLogoutLoading(true);
-    try {
-      await logoutUser();
-    } catch (error: any) {
-      showAlert(t('profile.logoutErrorTitle'), error?.message ?? 'Failed to sign out.');
-    } finally {
-      setLogoutLoading(false);
-    }
-  }, [t]);
-
-  const handleActivityPress = React.useCallback(
+  const handleMarkActivityRead = React.useCallback(
     async (activity: ActivityPreview) => {
-      if (!activity.notificationId) {
-        openExplore();
+      if (!user?.id || !activity.notificationId || !activity.unread) {
         return;
       }
 
-      setReadingNotificationId(activity.notificationId);
       try {
-        await markUserNotificationRead(user?.id, activity.notificationId);
-        openExplore();
-      } catch (error: any) {
+        await markUserNotificationRead(user.id, activity.notificationId);
+      } catch (error) {
         if (error instanceof NotificationValidationError) {
-          showAlert(t('profile.notificationErrorTitle'), error.message);
-        } else {
           showAlert(
-            t('profile.notificationErrorTitle'),
-            error?.message ?? 'Failed to update notification.'
+            language === 'ar' ? 'تعذر تحديث الإشعار' : 'Could not update notification',
+            error.message
           );
+          return;
         }
-      } finally {
-        setReadingNotificationId(null);
+
+        showAlert(
+          language === 'ar' ? 'تعذر تحديث الإشعار' : 'Could not update notification',
+          isDataAccessBlockedError(error)
+            ? getBlockedDataMessage(language === 'ar' ? 'الإشعارات' : 'notifications')
+            : getErrorMessage(error, 'Unable to update notification right now.')
+        );
       }
     },
-    [openExplore, t, user?.id]
+    [language, user?.id]
   );
 
-  if (loadingProfile) {
+  const handleToggleLanguage = React.useCallback(() => {
+    const nextLanguage = languageValue === 'en' ? 'ar' : 'en';
+    setLanguageValue(nextLanguage);
+    void setLanguagePreference(nextLanguage);
+  }, [languageValue, setLanguagePreference]);
+
+  const handleSaveSettings = React.useCallback(async () => {
+    if (!user) {
+      showAlert(
+        language === 'ar' ? 'تسجيل الدخول مطلوب' : 'Sign-in required',
+        copy.signInRequired
+      );
+      return;
+    }
+
+    setSavingSettings(true);
+
+    try {
+      await saveCurrentUserProfile({
+        userId: user.id,
+        username: username.trim() || copy.defaultUsername,
+        bio: bio.trim(),
+        language: languageValue,
+        privacyMode: privacyMode === 'private',
+      });
+      await setLanguagePreference(languageValue);
+
+      showAlert(
+        languageValue === 'ar' ? 'تم الحفظ' : 'Saved',
+        languageValue === 'ar'
+          ? 'تم حفظ إعدادات الحساب.'
+          : 'Your account settings were saved.'
+      );
+    } catch (error) {
+      if (error instanceof ProfileValidationError) {
+        showAlert(
+          language === 'ar' ? 'تعذر حفظ الإعدادات' : 'Could not save settings',
+          error.message
+        );
+      } else {
+        showAlert(
+          language === 'ar' ? 'تعذر حفظ الإعدادات' : 'Could not save settings',
+          isDataAccessBlockedError(error)
+            ? getBlockedDataMessage(language === 'ar' ? 'إعدادات الحساب' : 'account settings')
+            : getErrorMessage(error, 'Unable to save settings right now.')
+        );
+      }
+    } finally {
+      setSavingSettings(false);
+    }
+  }, [bio, copy.defaultUsername, copy.signInRequired, language, languageValue, privacyMode, setLanguagePreference, user, username]);
+
+  const handleSignOut = React.useCallback(async () => {
+    setSigningOut(true);
+
+    try {
+      await logoutUser();
+    } catch (error) {
+      showAlert(
+        language === 'ar' ? 'تعذر تسجيل الخروج' : 'Could not sign out',
+        getErrorMessage(error, language === 'ar' ? 'حاول مجددًا.' : 'Please try again.')
+      );
+    } finally {
+      setSigningOut(false);
+    }
+  }, [language]);
+
+  if (loading) {
     return <LoadingState label={copy.title} />;
   }
 
@@ -724,186 +623,117 @@ export function ProfileScreen() {
       contentContainerStyle={styles.content}
     >
       <View style={styles.shell}>
-        <View style={[styles.headerRow, { flexDirection: getRowDirection() }]}> 
-          <Text
-            style={[styles.wordmark, { writingDirection: isRTL ? 'rtl' : 'ltr' }]}
-          >
-            Spots
-          </Text>
+        <View style={[styles.topBar, { flexDirection: getRowDirection() }]}>
+          <Text style={styles.brandText}>Spots</Text>
 
-          <View style={[styles.headerActions, { flexDirection: getRowDirection() }]}> 
+          <View style={[styles.topActions, { flexDirection: getRowDirection() }]}>
             <Pressable
               accessibilityRole="button"
-              onPress={openExplore}
-              style={({ pressed }) => [styles.headerActionButton, pressed && styles.actionPressed]}
+              onPress={() => navigation.navigate('Home')}
+              style={({ pressed }) => [styles.topIconButton, pressed && styles.buttonPressed]}
             >
               <BellGlyph />
             </Pressable>
 
             <Pressable
               accessibilityRole="button"
-              onPress={openExplore}
-              style={({ pressed }) => [styles.headerActionButton, pressed && styles.actionPressed]}
+              onPress={() => navigation.navigate('Explore')}
+              style={({ pressed }) => [styles.topIconButton, pressed && styles.buttonPressed]}
             >
-              <Text style={styles.heartGlyph}>♡</Text>
+              <Text style={styles.topIconGlyph}>♡</Text>
             </Pressable>
 
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('Profile')}
-              style={({ pressed }) => [pressed && styles.actionPressed]}
-            >
-              <View style={styles.avatarFrameSmall}>
-                <Image source={{ uri: MOBILE_AVATAR_FALLBACK_URI }} style={styles.avatarImage} />
-                {!user ? <Text style={styles.avatarFallbackText}>{displayName.charAt(0)}</Text> : null}
-              </View>
-            </Pressable>
+            <View style={styles.avatarFrame}>
+              <Image source={{ uri: MOBILE_AVATAR_FALLBACK_URI }} style={styles.avatarImage} />
+            </View>
           </View>
         </View>
 
-        {accountDataIssue ? (
+        {setupIssue ? (
           <View style={styles.slimBanner}>
             <Text
               style={[
                 styles.slimBannerText,
                 { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
               ]}
-              numberOfLines={2}
             >
-              {accountDataIssue}
+              {setupIssue}
             </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleRetry}
-              style={({ pressed }) => [styles.slimBannerAction, pressed && styles.actionPressed]}
-            >
-              <Text style={styles.slimBannerActionLabel}>{copy.retry}</Text>
-            </Pressable>
           </View>
         ) : null}
 
         <View style={styles.heroCard}>
-          <View style={[styles.heroRow, { flexDirection: getRowDirection() }]}> 
+          <View style={[styles.heroTopRow, { flexDirection: getRowDirection() }]}>
             <View style={styles.heroAvatarWrap}>
-              <Image source={{ uri: MOBILE_AVATAR_FALLBACK_URI }} style={styles.heroAvatar} />
-              <Pressable
-                accessibilityRole="button"
-                style={({ pressed }) => [
-                  styles.editAvatarButton,
-                  pressed && styles.actionPressed,
-                ]}
-              >
-                <Text style={styles.editAvatarGlyph}>✎</Text>
-              </Pressable>
+              <Image source={{ uri: MOBILE_AVATAR_FALLBACK_URI }} style={styles.heroAvatarImage} />
             </View>
 
-            <View style={styles.heroCopy}>
+            <View style={styles.heroIdentity}>
               <Text
                 style={[
                   styles.heroName,
                   { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
                 ]}
-                numberOfLines={1}
               >
                 {displayName}
               </Text>
+
               <Text
                 style={[
                   styles.heroEmail,
                   { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
                 ]}
-                numberOfLines={1}
               >
                 {displayEmail}
               </Text>
 
-              <View style={[styles.heroBadgeRow, { flexDirection: getRowDirection() }]}> 
+              <View style={[styles.heroBadgeRow, { flexDirection: getRowDirection() }]}>
                 <View style={styles.heroBadge}>
-                  <Text style={styles.heroBadgeIcon}>◌</Text>
-                  <Text style={styles.heroBadgeLabel}>{`${copy.roleLabel}: ${displayRole}`}</Text>
+                  <Text style={styles.heroBadgeText}>
+                    {copy.roleLabel}: {roleLabel}
+                  </Text>
                 </View>
-                <View style={styles.heroBadge}>
-                  <Text style={styles.heroBadgeIcon}>⌂</Text>
-                  <Text style={styles.heroBadgeLabel}>{`${copy.planLabel}: ${displayPlan}`}</Text>
+                <View style={[styles.heroBadge, styles.heroBadgeSecondary]}>
+                  <Text style={[styles.heroBadgeText, styles.heroBadgeTextSecondary]}>
+                    {copy.planLabel}: {planLabel}
+                  </Text>
                 </View>
               </View>
             </View>
           </View>
+
+          <View style={[styles.statsRow, { flexDirection: getRowDirection() }]}>
+            <StatCard icon="✦" label={copy.statsXp} value={xpValue} />
+            <StatCard icon="⌑" label={copy.statsSaves} value={String(favoritePostIds.length)} />
+            <StatCard icon="•" label={copy.statsUnread} value={String(unreadCount)} />
+          </View>
         </View>
 
-        <View style={[styles.statsRow, { flexDirection: getRowDirection() }]}> 
-          <StatCard
-            icon="★"
-            value={String(displayXp)}
-            label={copy.statsXp}
-            hint={copy.statsXpHint}
-            emphasize
-          />
-          <StatCard
-            icon="⌔"
-            value={String(displaySaves)}
-            label={copy.statsSaves}
-            hint={copy.statsSavesHint}
-          />
-          <StatCard
-            icon="◌"
-            value={String(displayUnread)}
-            label={copy.statsUnread}
-            hint={copy.statsUnreadHint}
-          />
-        </View>
+        <LeaderboardPanel />
+
+        <AdminConsolePanel role={role} />
 
         <View style={styles.sectionCard}>
-          <SectionHeader title={copy.savedTitle} actionLabel={copy.viewAll} onActionPress={openExplore} />
+          <SectionHeader
+            title={copy.savedTitle}
+            actionLabel={copy.viewAll}
+            onActionPress={handleViewAllSaved}
+          />
 
-          <Pressable
-            accessibilityRole="button"
-            onPress={openExplore}
-            style={({ pressed }) => [styles.savedSpotRow, pressed && styles.actionPressed]}
+          <Text
+            style={[
+              styles.sectionHint,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
           >
-            <Image source={{ uri: primarySavedSpot.imageUrl }} style={styles.savedSpotThumb} />
-            <View style={styles.savedSpotBody}>
-              <Text
-                style={[
-                  styles.savedSpotTitle,
-                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-                numberOfLines={1}
-              >
-                {primarySavedSpot.title}
-              </Text>
-              <Text
-                style={[
-                  styles.savedSpotMeta,
-                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-                numberOfLines={1}
-              >
-                {primarySavedSpot.meta}
-              </Text>
-              <Text
-                style={[
-                  styles.savedSpotDistance,
-                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-                numberOfLines={1}
-              >
-                {`⌖ ${primarySavedSpot.distance}`}
-              </Text>
-            </View>
-            <View style={styles.savedSpotBookmarkWrap}>
-              <BookmarkGlyph active />
-            </View>
-          </Pressable>
+            {copy.savedSectionHint}
+          </Text>
 
-          {savedSpotItems.length <= 1 ? (
-            <View style={styles.emptyHintWrap}>
-              <View style={styles.emptyHintIconWrap}>
-                <Text style={styles.emptyHintIcon}>♡</Text>
-              </View>
+          {savedSpots.length === 0 ? (
+            <View style={styles.emptySavedNotice}>
               <Text
                 style={[
-                  styles.emptyHintTitle,
+                  styles.emptySavedTitle,
                   { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
                 ]}
               >
@@ -911,150 +741,314 @@ export function ProfileScreen() {
               </Text>
               <Text
                 style={[
-                  styles.emptyHintBody,
+                  styles.emptySavedBody,
                   { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
                 ]}
               >
                 {copy.noMoreSavedBody}
               </Text>
             </View>
-          ) : null}
-
-          <View style={styles.sectionDivider} />
-
-          <SectionHeader title={copy.activityTitle} actionLabel={copy.viewAll} onActionPress={openExplore} />
-
-          <View style={styles.activityList}>
-            {activityRows.map((activity, index) => (
+          ) : (
+            savedSpots.map(spot => (
               <Pressable
-                key={activity.id}
-                accessibilityRole="button"
-                onPress={() => {
-                  void handleActivityPress(activity);
-                }}
-                style={({ pressed }) => [
-                  styles.activityRow,
-                  index > 0 && styles.activityRowBorder,
-                  pressed && styles.actionPressed,
-                ]}
+                key={spot.id}
+                onPress={() => navigation.navigate('Explore', { query: spot.title })}
+                style={[styles.savedCard, { flexDirection: getRowDirection() }]}
               >
-                <View
-                  style={[
-                    styles.activityIconWrap,
-                    activity.icon === 'bell' && styles.activityIconWrapBell,
-                    activity.unread && styles.activityIconWrapUnread,
-                  ]}
-                >
-                  <Text style={styles.activityIcon}>{activity.icon === 'bell' ? '◌' : '⌔'}</Text>
+                <Image source={{ uri: spot.imageUrl }} style={styles.savedCardImage} />
+
+                <View style={styles.savedCardBody}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.savedCardTitle,
+                      { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {spot.title}
+                  </Text>
+
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.savedCardMeta,
+                      { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {spot.meta}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.savedCardDistance,
+                      { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {spot.distance}
+                  </Text>
                 </View>
 
-                <Image source={{ uri: activity.imageUrl }} style={styles.activityThumb} />
+                <View style={styles.savedCardAction}>
+                  <BookmarkGlyph active />
+                </View>
+              </Pressable>
+            ))
+          )}
+        </View>
 
-                <View style={styles.activityCopy}>
+        <View style={styles.sectionCard}>
+          <SectionHeader
+            title={copy.activityTitle}
+            actionLabel={copy.viewAll}
+            onActionPress={handleViewAllActivity}
+          />
+
+          <View style={styles.activityList}>
+            {activityItems.length === 0 ? (
+              <View style={styles.emptySavedNotice}>
+                <Text
+                  style={[
+                    styles.emptySavedTitle,
+                    { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                >
+                  {language === 'ar' ? 'لا توجد إشعارات بعد' : 'No notifications yet'}
+                </Text>
+                <Text
+                  style={[
+                    styles.emptySavedBody,
+                    { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                >
+                  {language === 'ar'
+                    ? 'ستظهر التعليقات والإعجابات هنا.'
+                    : 'Comments and likes on your posts will appear here.'}
+                </Text>
+              </View>
+            ) : activityItems.map(item => (
+              <Pressable
+                key={item.id}
+                onPress={() => void handleMarkActivityRead(item)}
+                style={[styles.activityRow, { flexDirection: getRowDirection() }]}
+              >
+                <ActivityIconBubble icon={item.icon} />
+
+                <Image source={{ uri: item.imageUrl }} style={styles.activityImage} />
+
+                <View style={styles.activityBody}>
                   <Text
+                    numberOfLines={1}
                     style={[
                       styles.activityTitle,
                       { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
                     ]}
-                    numberOfLines={1}
                   >
-                    {activity.title}
+                    {item.title}
                   </Text>
+
                   <Text
+                    numberOfLines={1}
                     style={[
                       styles.activitySubtitle,
                       { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
                     ]}
-                    numberOfLines={1}
                   >
-                    {activity.subtitle}
+                    {item.subtitle}
                   </Text>
+
                   <Text
                     style={[
                       styles.activityRecency,
                       { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
                     ]}
-                    numberOfLines={1}
                   >
-                    {readingNotificationId === activity.notificationId ? 'Updating...' : activity.recency}
+                    {item.recency}
                   </Text>
                 </View>
 
-                <Text style={styles.activityChevron}>{isRTL ? '‹' : '›'}</Text>
+                <View style={styles.activityTail}>
+                  {item.unread ? <View style={styles.unreadDot} /> : null}
+                  <Text style={styles.activityChevron}>{isRTL ? '‹' : '›'}</Text>
+                </View>
               </Pressable>
             ))}
           </View>
         </View>
 
         <View style={styles.sectionCard}>
-          <SectionHeader title={copy.settingsTitle} />
+          <Text
+            style={[
+              styles.settingsTitle,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {copy.settingsTitle}
+          </Text>
 
-          <View style={styles.settingsList}>
-            <SettingsRow icon="◯" label={copy.usernameLabel} value={displayName} />
-            <SettingsRow icon="@" label={copy.emailLabel} value={displayEmail} />
-            <SettingsRow icon="⌂" label={copy.planSettingLabel} value={displayPlan} />
-            <SettingsRow
-              icon="A"
-              label={copy.languageLabel}
-              value={languageValue}
-              onPress={handleToggleLanguage}
-            />
-            <SettingsRow
-              icon="◎"
-              label={copy.privacyLabel}
-              value={privacyValue}
-              onPress={handleTogglePrivacy}
-            />
+          <Text
+            style={[
+              styles.settingsHint,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {copy.settingsHint}
+          </Text>
+
+          <View style={styles.settingsGroup}>
+            <View style={styles.settingRow}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {copy.usernameLabel}
+              </Text>
+              <TextInput
+                value={username}
+                onChangeText={setUsername}
+                style={[
+                  styles.settingInput,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+                placeholder={copy.defaultUsername}
+                placeholderTextColor={colors.textSubtle}
+              />
+            </View>
+
+            <View style={styles.settingRow}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {copy.emailLabel}
+              </Text>
+              <Text
+                style={[
+                  styles.settingStaticValue,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {displayEmail}
+              </Text>
+            </View>
+
+            <View style={styles.settingRow}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {copy.planSettingLabel}
+              </Text>
+              <Text
+                style={[
+                  styles.settingStaticValue,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {planLabel}
+              </Text>
+            </View>
+
+            <View style={styles.settingRow}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {copy.languageLabel}
+              </Text>
+              <Pressable
+                onPress={handleToggleLanguage}
+                style={[
+                  styles.choicePill,
+                  { alignSelf: isRTL ? 'flex-end' : 'flex-start' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.choicePillText,
+                    { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                >
+                  {languageValue === 'ar' ? copy.languageArabic : copy.languageEnglish}
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.settingRow}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {copy.privacyLabel}
+              </Text>
+              <Pressable
+                onPress={() => setPrivacyMode(current => (current === 'public' ? 'private' : 'public'))}
+                style={[
+                  styles.choicePill,
+                  { alignSelf: isRTL ? 'flex-end' : 'flex-start' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.choicePillText,
+                    { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                >
+                  {privacyMode === 'private' ? copy.privacyPrivate : copy.privacyPublic}
+                </Text>
+              </Pressable>
+            </View>
           </View>
 
+          <Text
+            style={[
+              styles.privacyNote,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {copy.privacyDescription}
+          </Text>
+
           <Pressable
-            accessibilityRole="button"
-            disabled={saving || !user}
-            onPress={() => {
-              void handleSaveSettings();
-            }}
+            onPress={() => void handleSaveSettings()}
+            disabled={savingSettings || !user}
             style={({ pressed }) => [
               styles.primaryButton,
-              (saving || !user) && styles.buttonDisabled,
-              pressed && !saving && user && styles.primaryButtonPressed,
+              (savingSettings || !user) && styles.primaryButtonDisabled,
+              pressed && !savingSettings && user && styles.buttonPressed,
             ]}
           >
-            {saving ? (
-              <ActivityIndicator color={colors.surface} />
+            {savingSettings ? (
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.primaryButtonLabel}>{`◉  ${copy.saveSettings}`}</Text>
+              <Text style={styles.primaryButtonLabel}>{copy.saveSettings}</Text>
             )}
           </Pressable>
 
           <Pressable
-            accessibilityRole="button"
-            disabled={logoutLoading}
-            onPress={() => {
-              void handleSignOut();
-            }}
+            onPress={() => void handleSignOut()}
+            disabled={signingOut}
             style={({ pressed }) => [
               styles.secondaryButton,
-              logoutLoading && styles.buttonDisabled,
-              pressed && !logoutLoading && styles.secondaryButtonPressed,
+              signingOut && styles.secondaryButtonDisabled,
+              pressed && !signingOut && styles.buttonPressed,
             ]}
           >
-            {logoutLoading ? (
-              <ActivityIndicator color={colors.primary} />
+            {signingOut ? (
+              <ActivityIndicator color={colors.text} />
             ) : (
-              <Text style={styles.secondaryButtonLabel}>{`⟶  ${copy.signOut}`}</Text>
+              <Text style={styles.secondaryButtonLabel}>{copy.signOut}</Text>
             )}
           </Pressable>
-
-          {!user ? (
-            <Text
-              style={[
-                styles.signInHint,
-                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-              ]}
-            >
-              {copy.signInRequired}
-            </Text>
-          ) : null}
         </View>
       </View>
     </ScreenContainer>
@@ -1064,56 +1058,51 @@ export function ProfileScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F4F4F4',
+    backgroundColor: '#FAF7F2',
   },
   content: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md + 2,
-    paddingBottom: spacing.xxxl + 18,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 120,
   },
   shell: {
-    gap: spacing.md,
+    gap: 14,
   },
-  headerRow: {
+
+  topBar: {
     alignItems: 'center',
     justifyContent: 'space-between',
-    minHeight: 52,
+    minHeight: 48,
+    paddingTop: 4,
   },
-  wordmark: {
-    ...typography.title,
-    color: colors.primary,
-    fontSize: 24,
-    lineHeight: 30,
-    letterSpacing: -0.45,
+  brandText: {
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '800',
+    color: '#F45A4E',
+    letterSpacing: -0.6,
   },
-  headerActions: {
+  topActions: {
     alignItems: 'center',
-    gap: spacing.sm + 4,
+    gap: 14,
   },
-  headerActionButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  topIconButton: {
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionPressed: {
-    opacity: 0.82,
+  topIconGlyph: {
+    fontSize: 22,
+    lineHeight: 24,
+    color: '#433B36',
   },
-  heartGlyph: {
-    ...typography.title,
-    color: colors.textMuted,
-    fontSize: 24,
-    lineHeight: 28,
-  },
-  avatarFrameSmall: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#D8D8D8',
+  avatarFrame: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#EFE8E0',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1121,17 +1110,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  avatarFallbackText: {
-    ...typography.button,
-    color: colors.textMuted,
-    position: 'absolute',
-  },
+
   bellIcon: {
     width: 18,
     height: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
   bellStem: {
     position: 'absolute',
@@ -1139,20 +1123,20 @@ const styles = StyleSheet.create({
     width: 5,
     height: 2,
     borderRadius: 2,
-    backgroundColor: colors.textMuted,
+    backgroundColor: '#6B625C',
   },
   bellBody: {
     position: 'absolute',
     top: 3,
     width: 11,
-    height: 10,
+    height: 9,
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
     borderBottomLeftRadius: 4,
     borderBottomRightRadius: 4,
-    borderWidth: 1.3,
-    borderColor: colors.textMuted,
-    backgroundColor: '#F8F8F8',
+    borderWidth: 1.35,
+    borderColor: '#6B625C',
+    backgroundColor: '#FFFFFF',
   },
   bellClapper: {
     position: 'absolute',
@@ -1160,7 +1144,7 @@ const styles = StyleSheet.create({
     width: 4,
     height: 4,
     borderRadius: 4,
-    backgroundColor: colors.textMuted,
+    backgroundColor: '#6B625C',
   },
   bellBase: {
     position: 'absolute',
@@ -1168,529 +1152,467 @@ const styles = StyleSheet.create({
     width: 10,
     height: 1.5,
     borderRadius: 2,
-    backgroundColor: colors.textMuted,
+    backgroundColor: '#6B625C',
   },
   bellDot: {
     position: 'absolute',
     top: 0,
-    right: 0,
+    right: 1,
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: colors.primary,
+    backgroundColor: '#F45A4E',
   },
+
   slimBanner: {
-    borderRadius: radius.md,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#F2D7D1',
     backgroundColor: '#FFF5F2',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   slimBannerText: {
     ...typography.caption,
     color: '#925F57',
-    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
   },
-  slimBannerAction: {
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: '#EBC4BB',
-    paddingHorizontal: spacing.sm + 3,
-    paddingVertical: spacing.xs + 1,
-  },
-  slimBannerActionLabel: {
-    ...typography.button,
-    fontSize: 12,
-    lineHeight: 15,
-    color: colors.primary,
-  },
+
   heroCard: {
-    borderRadius: radius.lg,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E7E2DC',
-    backgroundColor: '#F9F9F9',
-    padding: spacing.md + 2,
-    shadowColor: '#291B14',
+    borderColor: '#ECE6DE',
+    borderRadius: 24,
+    padding: 16,
+    shadowColor: '#20150E',
     shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+    gap: 14,
   },
-  heroRow: {
+  heroTopRow: {
     alignItems: 'center',
-    gap: spacing.md,
+    gap: 14,
   },
   heroAvatarWrap: {
-    width: 106,
-    height: 106,
-    borderRadius: 53,
-    position: 'relative',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    overflow: 'hidden',
+    backgroundColor: '#EFE8E0',
   },
-  heroAvatar: {
+  heroAvatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 53,
-    borderWidth: 1,
-    borderColor: '#D8D8D8',
   },
-  editAvatarButton: {
-    position: 'absolute',
-    right: -2,
-    bottom: -2,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#F9F9F9',
-  },
-  editAvatarGlyph: {
-    ...typography.button,
-    color: '#FFFFFF',
-    fontSize: 14,
-    lineHeight: 16,
-  },
-  heroCopy: {
+  heroIdentity: {
     flex: 1,
-    gap: spacing.xs,
+    gap: 4,
   },
   heroName: {
-    ...typography.title,
-    fontSize: 21,
-    lineHeight: 28,
-    color: colors.text,
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: '800',
+    color: '#241B17',
   },
   heroEmail: {
-    ...typography.bodyMuted,
     fontSize: 14,
-    lineHeight: 19,
+    lineHeight: 18,
+    color: '#7B6F68',
   },
   heroBadgeRow: {
     alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
   },
   heroBadge: {
-    minHeight: 34,
-    borderRadius: radius.pill,
+    minHeight: 30,
+    borderRadius: 999,
+    backgroundColor: '#FFF2EF',
     borderWidth: 1,
-    borderColor: '#E2DFDA',
-    backgroundColor: '#FCFBFA',
-    paddingHorizontal: spacing.sm + 2,
-    flexDirection: 'row',
+    borderColor: '#F3CDC6',
+    paddingHorizontal: 12,
     alignItems: 'center',
-    gap: spacing.xs,
+    justifyContent: 'center',
   },
-  heroBadgeIcon: {
-    ...typography.caption,
-    color: colors.textMuted,
+  heroBadgeSecondary: {
+    backgroundColor: '#F7F4F1',
+    borderColor: '#E8E1DA',
+  },
+  heroBadgeText: {
     fontSize: 12,
     lineHeight: 14,
+    fontWeight: '700',
+    color: '#F45A4E',
   },
-  heroBadgeLabel: {
-    ...typography.caption,
-    color: colors.text,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '600',
+  heroBadgeTextSecondary: {
+    color: '#6B625C',
   },
+
   statsRow: {
-    gap: spacing.sm,
+    gap: 10,
   },
   statCard: {
     flex: 1,
-    minHeight: 112,
-    borderRadius: radius.md,
+    minHeight: 88,
+    borderRadius: 18,
+    backgroundColor: '#FAF7F3',
     borderWidth: 1,
-    borderColor: '#E7E2DC',
-    backgroundColor: '#F9F9F9',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    gap: 1,
-  },
-  statIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
+    borderColor: '#EEE7E0',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    alignItems: 'flex-start',
     justifyContent: 'center',
-    backgroundColor: '#EEF3FB',
-    marginBottom: spacing.xs,
-  },
-  statIconWrapEmphasis: {
-    backgroundColor: '#FCEBE7',
+    gap: 4,
   },
   statIcon: {
-    ...typography.title,
-    color: '#4B74A3',
-    fontSize: 18,
-    lineHeight: 20,
-  },
-  statIconEmphasis: {
-    color: colors.primary,
+    fontSize: 16,
+    lineHeight: 18,
+    color: '#F45A4E',
   },
   statValue: {
-    ...typography.title,
-    fontSize: 18,
+    fontSize: 20,
     lineHeight: 24,
-    color: colors.text,
+    fontWeight: '800',
+    color: '#231A16',
   },
   statLabel: {
-    ...typography.body,
-    fontSize: 14,
-    lineHeight: 18,
-    color: '#434343',
+    fontSize: 12,
+    lineHeight: 15,
+    color: '#7B6F68',
     fontWeight: '600',
   },
-  statHint: {
-    ...typography.caption,
-    fontSize: 12,
-    lineHeight: 16,
-    color: colors.textSubtle,
-  },
+
   sectionCard: {
-    borderRadius: radius.lg,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E7E2DC',
-    backgroundColor: '#F9F9F9',
-    padding: spacing.md + 2,
-    gap: spacing.sm + 1,
-    shadowColor: '#291B14',
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
+    borderColor: '#ECE6DE',
+    borderRadius: 22,
+    padding: 16,
+    gap: 12,
+    shadowColor: '#20150E',
+    shadowOpacity: 0.03,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   sectionHeader: {
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.sm,
   },
   sectionTitle: {
-    ...typography.sectionTitle,
-    fontSize: 19,
-    lineHeight: 25,
-    color: colors.text,
-    flex: 1,
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '800',
+    color: '#241B17',
   },
   sectionLink: {
-    ...typography.button,
-    fontSize: 16,
-    lineHeight: 20,
-    color: colors.primary,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: '#F45A4E',
   },
-  savedSpotRow: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#E1DFDC',
-    backgroundColor: '#FCFCFC',
-    padding: spacing.xs + 3,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm + 1,
+  actionPressed: {
+    opacity: 0.82,
   },
-  savedSpotThumb: {
-    width: 106,
-    height: 74,
-    borderRadius: radius.sm,
-    backgroundColor: '#E9E9E9',
-  },
-  savedSpotBody: {
-    flex: 1,
-    gap: 2,
-  },
-  savedSpotTitle: {
-    ...typography.sectionTitle,
-    fontSize: 17,
-    lineHeight: 22,
-    color: colors.text,
-  },
-  savedSpotMeta: {
-    ...typography.bodyMuted,
+  sectionHint: {
     fontSize: 13,
     lineHeight: 18,
-    color: colors.textMuted,
+    color: '#7B6F68',
   },
-  savedSpotDistance: {
-    ...typography.caption,
+
+  savedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 18,
+    backgroundColor: '#FAF7F3',
+    borderWidth: 1,
+    borderColor: '#EEE7E0',
+    overflow: 'hidden',
+    minHeight: 98,
+  },
+  savedCardImage: {
+    width: 92,
+    height: 98,
+  },
+  savedCardBody: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  savedCardTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
+    color: '#241B17',
+  },
+  savedCardMeta: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: '#7B6F68',
+  },
+  savedCardDistance: {
     fontSize: 13,
-    lineHeight: 17,
-    color: '#5C5C5C',
+    lineHeight: 16,
+    color: '#9B8F87',
+    fontWeight: '600',
   },
-  savedSpotBookmarkWrap: {
-    width: 28,
+  savedCardAction: {
+    width: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bookmarkIcon: {
-    width: 14,
-    height: 18,
+
+  emptySavedNotice: {
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 4,
+  },
+  emptySavedTitle: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '700',
+    color: '#423935',
+  },
+  emptySavedBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#8A7F78',
+  },
+
+  bookmarkIcon: {
+    width: 18,
+    height: 22,
     position: 'relative',
   },
   bookmarkIconActive: {
-    opacity: 1,
+    transform: [{ scale: 1.03 }],
   },
   bookmarkBody: {
-    width: 12,
-    height: 16,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-    borderWidth: 1.6,
-    borderColor: colors.primary,
+    position: 'absolute',
+    top: 0,
+    left: 2,
+    width: 14,
+    height: 18,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    borderWidth: 1.8,
     borderBottomWidth: 0,
+    borderColor: '#F45A4E',
     backgroundColor: 'transparent',
   },
   bookmarkFoldLeft: {
     position: 'absolute',
     bottom: 1,
-    left: 1,
-    width: 6,
-    height: 6,
-    borderLeftWidth: 1.6,
-    borderBottomWidth: 1.6,
-    borderColor: colors.primary,
-    transform: [{ skewY: '-34deg' }],
+    left: 2,
+    width: 0,
+    height: 0,
+    borderTopWidth: 7,
+    borderRightWidth: 7,
+    borderTopColor: '#F45A4E',
+    borderRightColor: 'transparent',
   },
   bookmarkFoldRight: {
     position: 'absolute',
     bottom: 1,
-    right: 1,
-    width: 6,
-    height: 6,
-    borderRightWidth: 1.6,
-    borderBottomWidth: 1.6,
-    borderColor: colors.primary,
-    transform: [{ skewY: '34deg' }],
+    right: 2,
+    width: 0,
+    height: 0,
+    borderTopWidth: 7,
+    borderLeftWidth: 7,
+    borderTopColor: '#F45A4E',
+    borderLeftColor: 'transparent',
   },
-  emptyHintWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.sm + 2,
-    gap: 2,
-  },
-  emptyHintIconWrap: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    borderWidth: 1,
-    borderColor: '#DEDEDE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  emptyHintIcon: {
-    ...typography.title,
-    color: colors.primary,
-    fontSize: 24,
-    lineHeight: 28,
-  },
-  emptyHintTitle: {
-    ...typography.body,
-    color: '#555555',
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '600',
-  },
-  emptyHintBody: {
-    ...typography.caption,
-    color: colors.textSubtle,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: '#E7E3DE',
-    marginTop: spacing.xs,
-    marginBottom: spacing.xs,
-  },
+
   activityList: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#E1DFDC',
-    backgroundColor: '#FCFCFC',
-    overflow: 'hidden',
+    gap: 10,
   },
   activityRow: {
+    minHeight: 82,
+    borderRadius: 18,
+    backgroundColor: '#FAF7F3',
+    borderWidth: 1,
+    borderColor: '#EEE7E0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.sm + 1,
+    gap: 10,
   },
-  activityRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: '#ECE8E2',
-  },
-  activityIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  activityIconBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EDF4FC',
   },
-  activityIconWrapBell: {
-    backgroundColor: '#FDEEEE',
+  activityIconBubbleSave: {
+    backgroundColor: '#FFF2EF',
   },
-  activityIconWrapUnread: {
-    borderWidth: 1,
-    borderColor: '#F8C5BC',
+  activityIconBubbleBell: {
+    backgroundColor: '#F7F4F1',
   },
-  activityIcon: {
-    ...typography.title,
-    color: '#4C76A6',
-    fontSize: 16,
-    lineHeight: 20,
+  activityIconGlyph: {
+    fontSize: 18,
+    lineHeight: 18,
+    color: '#F45A4E',
   },
-  activityThumb: {
-    width: 62,
-    height: 48,
-    borderRadius: radius.sm,
-    backgroundColor: '#ECECEC',
+  activityImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
   },
-  activityCopy: {
+  activityBody: {
     flex: 1,
-    gap: 1,
+    gap: 2,
   },
   activityTitle: {
-    ...typography.body,
-    color: colors.text,
-    fontSize: 14,
+    fontSize: 15,
     lineHeight: 18,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: '#241B17',
   },
   activitySubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 17,
+    color: '#7B6F68',
   },
   activityRecency: {
-    ...typography.caption,
-    color: '#707070',
     fontSize: 12,
-    lineHeight: 16,
-  },
-  activityChevron: {
-    ...typography.title,
-    color: colors.textSubtle,
-    fontSize: 19,
-    lineHeight: 22,
-  },
-  settingsList: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#E1DFDC',
-    backgroundColor: '#FCFCFC',
-    overflow: 'hidden',
-  },
-  settingRow: {
-    minHeight: 52,
-    paddingHorizontal: spacing.sm + 2,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ECE8E2',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  settingLeft: {
-    alignItems: 'center',
-    gap: spacing.sm,
-    flex: 1,
-  },
-  settingIcon: {
-    ...typography.body,
-    color: '#636363',
-    width: 16,
-    textAlign: 'center',
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  settingLabel: {
-    ...typography.body,
-    color: colors.text,
-    fontSize: 16,
-    lineHeight: 21,
-    flex: 1,
-  },
-  settingRight: {
-    alignItems: 'center',
-    gap: spacing.xs,
-    maxWidth: '56%',
-  },
-  settingValue: {
-    ...typography.bodyMuted,
-    color: '#5A5A5A',
-    fontSize: 15,
-    lineHeight: 20,
-    maxWidth: '92%',
-  },
-  settingChevron: {
-    ...typography.title,
-    color: colors.textSubtle,
-    fontSize: 19,
-    lineHeight: 22,
-  },
-  primaryButton: {
-    marginTop: spacing.sm + 1,
-    minHeight: 52,
-    borderRadius: radius.md,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.primaryPressed,
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  primaryButtonPressed: {
-    backgroundColor: colors.primaryPressed,
-  },
-  primaryButtonLabel: {
-    ...typography.button,
-    color: '#FFFFFF',
-    fontSize: 20,
-    lineHeight: 21,
-    fontWeight: '700',
-  },
-  secondaryButton: {
-    marginTop: spacing.sm,
-    minHeight: 52,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#EBA89E',
-    backgroundColor: '#FFFDFD',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButtonPressed: {
-    backgroundColor: '#FFF5F3',
-  },
-  secondaryButtonLabel: {
-    ...typography.button,
-    color: colors.primary,
-    fontSize: 19,
-    lineHeight: 20,
+    lineHeight: 15,
+    color: '#9B8F87',
     fontWeight: '600',
   },
-  buttonDisabled: {
+  activityTail: {
+    minWidth: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#F45A4E',
+  },
+  activityChevron: {
+    fontSize: 20,
+    lineHeight: 20,
+    color: '#B1A59E',
+  },
+
+  settingsTitle: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: '800',
+    color: '#241B17',
+  },
+  settingsHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#7B6F68',
+  },
+  settingsGroup: {
+    gap: 10,
+  },
+  settingRow: {
+    minHeight: 56,
+    borderRadius: 16,
+    backgroundColor: '#FAF7F3',
+    borderWidth: 1,
+    borderColor: '#EEE7E0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    gap: 6,
+  },
+  settingLabel: {
+    fontSize: 12,
+    lineHeight: 14,
+    color: '#9B8F87',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  settingInput: {
+    fontSize: 15,
+    lineHeight: 20,
+    color: '#241B17',
+    padding: 0,
+    margin: 0,
+    fontWeight: '600',
+  },
+  settingStaticValue: {
+    fontSize: 15,
+    lineHeight: 20,
+    color: '#241B17',
+    fontWeight: '600',
+  },
+  choicePill: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    borderRadius: 999,
+    backgroundColor: '#FFF2EF',
+    borderWidth: 1,
+    borderColor: '#F3CDC6',
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  choicePillText: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: '#F45A4E',
+  },
+  privacyNote: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#8A7F78',
+  },
+
+  primaryButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: '#F45A4E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  primaryButtonDisabled: {
     opacity: 0.6,
   },
-  signInHint: {
-    ...typography.caption,
-    marginTop: spacing.sm,
-    color: '#8B6A53',
-    fontSize: 12,
-    lineHeight: 16,
+  primaryButtonLabel: {
+    fontSize: 17,
+    lineHeight: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
+  secondaryButton: {
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DDD4CC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryButtonDisabled: {
+    opacity: 0.7,
+  },
+  secondaryButtonLabel: {
+    fontSize: 16,
+    lineHeight: 19,
+    fontWeight: '700',
+    color: '#241B17',
+  },
+
+  buttonPressed: {
+    opacity: 0.86,
   },
 });

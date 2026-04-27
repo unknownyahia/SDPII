@@ -9,6 +9,7 @@ import {
 } from '../repositories/authRepository';
 import {
   createDefaultProfile,
+  ensureDefaultProfile,
   loadCurrentUserProfile,
 } from './profileService';
 import { ensureDefaultSubscription } from './subscriptionService';
@@ -30,10 +31,21 @@ type EmailPasswordInput = {
   password: string;
 };
 
+type RegisterInput = EmailPasswordInput & {
+  username?: string;
+};
+
 function normalizeCredentials(input: EmailPasswordInput) {
   return {
     email: input.email.trim(),
     password: input.password,
+  };
+}
+
+function normalizeRegisterInput(input: RegisterInput) {
+  return {
+    ...normalizeCredentials(input),
+    username: input.username?.trim(),
   };
 }
 
@@ -199,27 +211,34 @@ async function ensureProfileForReturningUser(user: User) {
     throw new Error('Account session is not ready yet.');
   }
 
-  try {
-    await withBootstrapRetry(async () => {
-      await loadCurrentUserProfile({ user: appUser });
-    });
-    return;
-  } catch (error) {
-    if (!isRetryableBootstrapError(error)) {
-      throw error;
-    }
-  }
-
   await withBootstrapRetry(async () => {
-    await createDefaultProfile({
+    await ensureDefaultProfile({
       id: user.uid,
       email: user.email,
       role: 'user',
     });
   });
+
+  await withBootstrapRetry(async () => {
+    await loadCurrentUserProfile({ user: appUser });
+  });
 }
 
-async function bootstrapNewUserAccount(user: User) {
+export async function ensureRestoredUserAccount(user: AppUserIdentity) {
+  await withBootstrapRetry(async () => {
+    await ensureDefaultProfile({
+      id: user.id,
+      email: user.email,
+      role: 'user',
+    });
+  });
+
+  await withBootstrapRetry(async () => {
+    await ensureDefaultSubscription(user.id);
+  });
+}
+
+async function bootstrapNewUserAccount(user: User, username?: string) {
   const readyUser = await waitForAuthenticatedSession(user.uid);
 
   await withBootstrapRetry(async () => {
@@ -227,6 +246,7 @@ async function bootstrapNewUserAccount(user: User) {
       id: readyUser.uid,
       email: readyUser.email,
       role: 'user',
+      username,
     });
   });
   await withBootstrapRetry(async () => {
@@ -243,16 +263,16 @@ async function bootstrapReturningUserAccount(user: User) {
   });
 }
 
-export async function registerUser(input: EmailPasswordInput) {
+export async function registerUser(input: RegisterInput) {
   validateCredentials(input);
 
-  const normalized = normalizeCredentials(input);
+  const normalized = normalizeRegisterInput(input);
   const credential = await registerWithEmail(
     normalized.email,
     normalized.password
   );
 
-  await bootstrapNewUserAccount(credential.user);
+  await bootstrapNewUserAccount(credential.user, normalized.username);
 
   return mapFirebaseUser(credential.user);
 }

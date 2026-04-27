@@ -11,21 +11,11 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../firebase/firebase';
+import { isSpotCategory } from '../constants/categories';
 import type { CreatePromotedEventInput, EventStatus, PromotedEvent } from '../types/event';
-import type { SpotCategory } from '../types/post';
 
 const EVENTS_COLLECTION = 'events';
-const SUPPORTED_CATEGORIES: SpotCategory[] = [
-  'fishing',
-  'event',
-  'sighting',
-  'weather',
-];
 const SUPPORTED_STATUSES: EventStatus[] = ['active', 'hidden', 'cancelled'];
-
-function isSpotCategory(value: unknown): value is SpotCategory {
-  return typeof value === 'string' && SUPPORTED_CATEGORIES.includes(value as SpotCategory);
-}
 
 function isEventStatus(value: unknown): value is EventStatus {
   return typeof value === 'string' && SUPPORTED_STATUSES.includes(value as EventStatus);

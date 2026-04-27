@@ -1,17 +1,10 @@
 import React from 'react';
-import {
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../../theme/designSystem';
 import { useLocalization } from '../../context/LocalizationContext';
+import { colors, radius, spacing, typography } from '../../theme/designSystem';
 
-type StatusBannerTone = 'neutral' | 'warning' | 'success' | 'info';
+type StatusBannerTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger';
 
 type StatusBannerAction = {
   label: string;
@@ -21,103 +14,166 @@ type StatusBannerAction = {
 
 type StatusBannerProps = {
   title: string;
-  body: string;
+  body?: string;
   tone?: StatusBannerTone;
   compact?: boolean;
   actions?: readonly StatusBannerAction[];
 };
 
+function getToneStyles(tone: StatusBannerTone) {
+  switch (tone) {
+    case 'success':
+      return {
+        container: styles.successContainer,
+        title: styles.successTitle,
+        body: styles.successBody,
+        iconWrap: styles.successIconWrap,
+        icon: styles.successIcon,
+        primaryButton: styles.successPrimaryButton,
+        primaryButtonLabel: styles.successPrimaryButtonLabel,
+      };
+    case 'danger':
+      return {
+        container: styles.dangerContainer,
+        title: styles.dangerTitle,
+        body: styles.dangerBody,
+        iconWrap: styles.dangerIconWrap,
+        icon: styles.dangerIcon,
+        primaryButton: styles.dangerPrimaryButton,
+        primaryButtonLabel: styles.dangerPrimaryButtonLabel,
+      };
+    case 'warning':
+      return {
+        container: styles.warningContainer,
+        title: styles.warningTitle,
+        body: styles.warningBody,
+        iconWrap: styles.warningIconWrap,
+        icon: styles.warningIcon,
+        primaryButton: styles.warningPrimaryButton,
+        primaryButtonLabel: styles.warningPrimaryButtonLabel,
+      };
+    case 'neutral':
+    case 'info':
+    default:
+      return {
+        container: styles.infoContainer,
+        title: styles.infoTitle,
+        body: styles.infoBody,
+        iconWrap: styles.infoIconWrap,
+        icon: styles.infoIcon,
+        primaryButton: styles.infoPrimaryButton,
+        primaryButtonLabel: styles.infoPrimaryButtonLabel,
+      };
+  }
+}
+
+function getToneGlyph(tone: StatusBannerTone) {
+  switch (tone) {
+    case 'success':
+      return '✓';
+    case 'danger':
+      return '!';
+    case 'warning':
+      return '!';
+    case 'neutral':
+    case 'info':
+    default:
+      return 'i';
+  }
+}
+
 export function StatusBanner({
   title,
   body,
-  tone = 'neutral',
+  tone = 'info',
   compact = false,
   actions = [],
 }: StatusBannerProps) {
-  const { getRowDirection, getTextAlign, isRTL } = useLocalization();
-  const isWeb = Platform.OS === 'web';
-  const { width } = useWindowDimensions();
-  const isDesktopWeb = isWeb && width >= 1024;
-  const compactMode = compact || isDesktopWeb;
+  const { getTextAlign, getRowDirection, isRTL } = useLocalization();
+  const toneStyles = getToneStyles(tone);
+  const glyph = getToneGlyph(tone);
 
   return (
     <View
       style={[
-        styles.banner,
-        compactMode && styles.bannerCompact,
-        compactMode && isWeb && styles.bannerCompactWeb,
-        isDesktopWeb && styles.bannerDesktopWeb,
-        tone === 'warning' && styles.bannerWarning,
-        tone === 'success' && styles.bannerSuccess,
-        tone === 'info' && styles.bannerInfo,
-        isDesktopWeb && tone === 'warning' && styles.bannerWarningDesktopWeb,
-        isDesktopWeb && tone === 'success' && styles.bannerSuccessDesktopWeb,
-        isDesktopWeb && tone === 'info' && styles.bannerInfoDesktopWeb,
+        styles.container,
+        toneStyles.container,
+        compact && styles.containerCompact,
       ]}
     >
-      <Text
-        style={[
-          styles.title,
-          compactMode && styles.titleCompact,
-          compactMode && isWeb && styles.titleCompactWeb,
-          isDesktopWeb && styles.titleDesktopWeb,
-          { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-        ]}
-      >
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.body,
-          compactMode && styles.bodyCompact,
-          compactMode && isWeb && styles.bodyCompactWeb,
-          isDesktopWeb && styles.bodyDesktopWeb,
-          { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-        ]}
-      >
-        {body}
-      </Text>
+      <View style={[styles.row, { flexDirection: getRowDirection() }]}>
+        <View style={[styles.iconWrap, toneStyles.iconWrap, compact && styles.iconWrapCompact]}>
+          <Text style={[styles.icon, toneStyles.icon, compact && styles.iconCompact]}>
+            {glyph}
+          </Text>
+        </View>
+
+        <View style={styles.copyWrap}>
+          <Text
+            style={[
+              styles.title,
+              toneStyles.title,
+              compact && styles.titleCompact,
+              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {title}
+          </Text>
+
+          {body ? (
+            <Text
+              style={[
+                styles.body,
+                toneStyles.body,
+                compact && styles.bodyCompact,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {body}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
       {actions.length > 0 ? (
         <View
           style={[
-            styles.actions,
-            compactMode && styles.actionsCompact,
-            compactMode && isWeb && styles.actionsCompactWeb,
-            isDesktopWeb && styles.actionsDesktopWeb,
-            {
-              flexDirection: getRowDirection(),
-              justifyContent: isRTL ? 'flex-start' : 'flex-start',
-            },
+            styles.actionsRow,
+            compact && styles.actionsRowCompact,
+            { flexDirection: getRowDirection() },
           ]}
         >
-          {actions.map(action => (
-            <Pressable
-              key={action.label}
-              accessibilityRole="button"
-              onPress={action.onPress}
-              style={({ pressed }) => [
-                styles.action,
-                compactMode && styles.actionCompact,
-                compactMode && isWeb && styles.actionCompactWeb,
-                isDesktopWeb && styles.actionDesktopWeb,
-                action.tone === 'primary' && styles.actionPrimary,
-                pressed && styles.actionPressed,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.actionText,
-                  compactMode && styles.actionTextCompact,
-                  compactMode && isWeb && styles.actionTextCompactWeb,
-                  isDesktopWeb && styles.actionTextDesktopWeb,
-                  action.tone === 'primary' && styles.actionTextPrimary,
-                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
+          {actions.map(action => {
+            const primary = action.tone !== 'secondary';
+
+            return (
+              <Pressable
+                key={action.label}
+                accessibilityRole="button"
+                onPress={action.onPress}
+                style={({ pressed }) => [
+                  styles.actionButton,
+                  compact && styles.actionButtonCompact,
+                  primary
+                    ? [styles.primaryActionButton, toneStyles.primaryButton]
+                    : styles.secondaryActionButton,
+                  pressed && styles.pressed,
                 ]}
               >
-                {action.label}
-              </Text>
-            </Pressable>
-          ))}
+                <Text
+                  style={[
+                    styles.actionButtonLabel,
+                    compact && styles.actionButtonLabelCompact,
+                    primary
+                      ? [styles.primaryActionButtonLabel, toneStyles.primaryButtonLabel]
+                      : styles.secondaryActionButtonLabel,
+                  ]}
+                >
+                  {action.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       ) : null}
     </View>
@@ -125,160 +181,227 @@ export function StatusBanner({
 }
 
 const styles = StyleSheet.create({
-  banner: {
+  container: {
     borderRadius: radius.lg,
-    borderWidth: 0.75,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceRaised,
-    padding: spacing.lg,
-    gap: spacing.xs,
-  },
-  bannerCompact: {
-    paddingVertical: spacing.xs + 2,
-    paddingHorizontal: spacing.sm + 2,
-    borderRadius: radius.sm,
-    borderWidth: 0.5,
-    gap: 1,
-  },
-  bannerCompactWeb: {
-    paddingVertical: 2,
-    paddingHorizontal: spacing.xs + 1,
-    gap: 0,
-  },
-  bannerDesktopWeb: {
-    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#E6DDD2',
-    backgroundColor: '#FFFEFB',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    gap: 2,
-  },
-  bannerWarning: {
-    borderColor: colors.warning,
-    backgroundColor: colors.warningSoft,
-  },
-  bannerWarningDesktopWeb: {
-    borderColor: '#E8D7BC',
-    backgroundColor: '#FFF9F0',
-  },
-  bannerSuccess: {
-    borderColor: colors.success,
-    backgroundColor: colors.successSoft,
-  },
-  bannerSuccessDesktopWeb: {
-    borderColor: '#CFE3D6',
-    backgroundColor: '#F7FCF8',
-  },
-  bannerInfo: {
-    borderColor: colors.info,
-    backgroundColor: colors.infoSoft,
-  },
-  bannerInfoDesktopWeb: {
-    borderColor: '#D7E2F0',
-    backgroundColor: '#F7FAFE',
-  },
-  title: {
-    ...typography.button,
-    color: colors.text,
-  },
-  titleCompact: {
-    fontSize: 12,
-    lineHeight: 15,
-  },
-  titleCompactWeb: {
-    fontSize: 10,
-    lineHeight: 11,
-  },
-  titleDesktopWeb: {
-    fontSize: 12,
-    lineHeight: 15,
-    color: '#3E342B',
-  },
-  body: {
-    ...typography.bodyMuted,
-    color: colors.textMuted,
-  },
-  bodyCompact: {
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  bodyCompactWeb: {
-    fontSize: 10,
-    lineHeight: 11,
-  },
-  bodyDesktopWeb: {
-    fontSize: 11,
-    lineHeight: 15,
-    color: '#6C6056',
-  },
-  actions: {
-    flexWrap: 'wrap',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     gap: spacing.sm,
-    marginTop: spacing.xs,
   },
-  actionsCompact: {
-    gap: spacing.xs,
+
+  containerCompact: {
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    gap: spacing.xs + 2,
+  },
+
+  row: {
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+
+  copyWrap: {
+    flex: 1,
+    gap: 4,
+  },
+
+  iconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 1,
   },
-  actionsCompactWeb: {
-    gap: 4,
-    marginTop: 0,
+
+  iconWrapCompact: {
+    width: 24,
+    height: 24,
   },
-  actionsDesktopWeb: {
-    marginTop: 2,
-    gap: spacing.xs,
+
+  icon: {
+    fontSize: 15,
+    lineHeight: 16,
+    fontWeight: '800',
   },
-  action: {
-    minHeight: 34,
+
+  iconCompact: {
+    fontSize: 13,
+    lineHeight: 14,
+  },
+
+  title: {
+    ...typography.button,
+    fontSize: 14,
+    lineHeight: 18,
+  },
+
+  titleCompact: {
+    fontSize: 13,
+    lineHeight: 16,
+  },
+
+  body: {
+    ...typography.caption,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
+  bodyCompact: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+
+  actionsRow: {
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+
+  actionsRowCompact: {
+    gap: spacing.xs + 2,
+  },
+
+  actionButton: {
+    minHeight: 36,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
-  actionCompact: {
-    minHeight: 26,
-    paddingHorizontal: spacing.sm,
-    borderWidth: 0.5,
+
+  actionButtonCompact: {
+    minHeight: 32,
+    paddingHorizontal: spacing.sm + 4,
   },
-  actionCompactWeb: {
-    minHeight: 18,
-    paddingHorizontal: spacing.xs + 1,
+
+  actionButtonLabel: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '700',
   },
-  actionDesktopWeb: {
-    minHeight: 22,
-    paddingHorizontal: spacing.sm,
-    borderColor: '#E4DACF',
-    backgroundColor: '#FFFCF8',
+
+  actionButtonLabelCompact: {
+    fontSize: 12,
+    lineHeight: 14,
   },
-  actionPrimary: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
+
+  primaryActionButton: {
+    borderColor: 'transparent',
   },
-  actionPressed: {
-    opacity: 0.9,
+
+  primaryActionButtonLabel: {
+    color: '#FFFFFF',
   },
-  actionText: {
-    ...typography.caption,
+
+  secondaryActionButton: {
+    backgroundColor: '#FFFFFF',
+    borderColor: colors.borderStrong,
+  },
+
+  secondaryActionButtonLabel: {
     color: colors.text,
-    fontWeight: '600',
   },
-  actionTextCompact: {
-    fontSize: 11,
-    lineHeight: 15,
+
+  pressed: {
+    opacity: 0.82,
   },
-  actionTextCompactWeb: {
-    fontSize: 9,
-    lineHeight: 11,
+
+  infoContainer: {
+    backgroundColor: colors.infoSoft,
+    borderColor: '#D5E4F8',
   },
-  actionTextDesktopWeb: {
-    fontSize: 10,
-    lineHeight: 13,
+  infoTitle: {
+    color: '#2E5F9D',
   },
-  actionTextPrimary: {
-    color: colors.primaryPressed,
+  infoBody: {
+    color: '#557AA8',
+  },
+  infoIconWrap: {
+    backgroundColor: '#DCEAFB',
+  },
+  infoIcon: {
+    color: '#3E79C5',
+  },
+  infoPrimaryButton: {
+    backgroundColor: '#3E79C5',
+    borderColor: '#3E79C5',
+  },
+  infoPrimaryButtonLabel: {
+    color: '#FFFFFF',
+  },
+
+  warningContainer: {
+    backgroundColor: colors.warningSoft,
+    borderColor: '#F0DFC5',
+  },
+  warningTitle: {
+    color: '#8B6120',
+  },
+  warningBody: {
+    color: '#9A753D',
+  },
+  warningIconWrap: {
+    backgroundColor: '#F8E8CC',
+  },
+  warningIcon: {
+    color: '#B87A24',
+  },
+  warningPrimaryButton: {
+    backgroundColor: '#B87A24',
+    borderColor: '#B87A24',
+  },
+  warningPrimaryButtonLabel: {
+    color: '#FFFFFF',
+  },
+
+  successContainer: {
+    backgroundColor: colors.successSoft,
+    borderColor: '#D8EEDC',
+  },
+  successTitle: {
+    color: '#256D43',
+  },
+  successBody: {
+    color: '#4B8363',
+  },
+  successIconWrap: {
+    backgroundColor: '#DDF3E4',
+  },
+  successIcon: {
+    color: '#2E9B57',
+  },
+  successPrimaryButton: {
+    backgroundColor: '#2E9B57',
+    borderColor: '#2E9B57',
+  },
+  successPrimaryButtonLabel: {
+    color: '#FFFFFF',
+  },
+
+  dangerContainer: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: '#F3D7D1',
+  },
+  dangerTitle: {
+    color: '#9C463D',
+  },
+  dangerBody: {
+    color: '#AC655D',
+  },
+  dangerIconWrap: {
+    backgroundColor: '#F7DFDB',
+  },
+  dangerIcon: {
+    color: '#C34E42',
+  },
+  dangerPrimaryButton: {
+    backgroundColor: '#C34E42',
+    borderColor: '#C34E42',
+  },
+  dangerPrimaryButtonLabel: {
+    color: '#FFFFFF',
   },
 });

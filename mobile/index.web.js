@@ -1,4 +1,5 @@
 import 'leaflet/dist/leaflet.css';
+import './src/screens/marketing/SpotsLandingPage.web.css';
 import { AppRegistry } from 'react-native';
 
 import App from './App';

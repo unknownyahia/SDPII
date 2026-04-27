@@ -16,12 +16,13 @@ const {
   getDoc,
   getDocs,
   collection,
+  collectionGroup,
   query,
   where,
 } = require('firebase/firestore');
 
 const PROJECT_ID = 'spots-backend-test';
-const FIRESTORE_PORT = 8080;
+const FIRESTORE_PORT = Number(process.env.FIRESTORE_EMULATOR_PORT || 8080);
 
 const fft = require('../functions/node_modules/firebase-functions-test')({
   projectId: PROJECT_ID,
@@ -184,12 +185,71 @@ test('rules: user can edit own profile but not another user profile', async () =
     })
   );
 
+  await assertSucceeds(
+    updateDoc(doc(aliceDb, 'users', 'alice'), {
+      bio: 'Updated runtime bio',
+      language: 'ar',
+      privacyMode: true,
+      emailNotifications: false,
+      marketingEmails: true,
+      updatedAt: new Date(),
+    })
+  );
+
   await assertFails(
     updateDoc(doc(aliceDb, 'users', 'bob'), {
       username: 'hacked',
       updatedAt: new Date(),
     })
   );
+});
+
+test('rules: app collection group reads match Explore and analytics usage', async () => {
+  await seedProfile('alice');
+  await seedProfile('admin', {role: 'admin'});
+  await seedProfile('owner');
+  await seedPost('post-1', {
+    userId: 'owner',
+    text: 'Seed post',
+    category: 'fishing',
+    lat: 25.2854,
+    lng: 51.531,
+  });
+  await seedComment('post-1', 'comment-1', {
+    userId: 'alice',
+    authorLabel: 'alice',
+    text: 'Nice spot',
+  });
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'posts', 'post-1', 'reactions', 'alice'), {
+      postId: 'post-1',
+      userId: 'alice',
+      type: 'like',
+      createdAt: new Date(),
+    });
+    await setDoc(doc(db, 'users', 'owner', 'notifications', 'note-1'), {
+      recipientUserId: 'owner',
+      actorUserId: 'alice',
+      actorLabel: 'alice',
+      type: 'like_on_post',
+      postId: 'post-1',
+      commentId: null,
+      message: 'alice liked your post.',
+      isRead: false,
+      createdAt: new Date(),
+      readAt: null,
+    });
+  });
+
+  const aliceDb = testEnv.authenticatedContext('alice').firestore();
+  const adminDb = testEnv.authenticatedContext('admin').firestore();
+
+  await assertSucceeds(getDocs(collectionGroup(aliceDb, 'comments')));
+  await assertSucceeds(getDocs(collectionGroup(aliceDb, 'reactions')));
+  await assertFails(getDocs(collectionGroup(aliceDb, 'notifications')));
+  await assertSucceeds(getDocs(collectionGroup(adminDb, 'notifications')));
 });
 
 test('rules: non-admin cannot change role or plan', async () => {

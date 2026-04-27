@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '../firebase/firebase';
+import { INTERNAL_SPOT_CATEGORIES, isSpotCategory } from '../constants/categories';
 import type {
   AdminAnalyticsSnapshot,
   CategoryCount,
@@ -23,7 +24,6 @@ const COMMENTS_COLLECTION = 'comments';
 const REACTIONS_COLLECTION = 'reactions';
 const NOTIFICATIONS_COLLECTION = 'notifications';
 
-const CATEGORIES: SpotCategory[] = ['fishing', 'event', 'sighting', 'weather'];
 const REPORT_STATUSES: ReportStatus[] = [
   'open',
   'reviewed',
@@ -32,12 +32,9 @@ const REPORT_STATUSES: ReportStatus[] = [
 ];
 
 function createCategoryCounts(): Record<SpotCategory, number> {
-  return {
-    fishing: 0,
-    event: 0,
-    sighting: 0,
-    weather: 0,
-  };
+  return Object.fromEntries(
+    INTERNAL_SPOT_CATEGORIES.map((category) => [category, 0])
+  ) as Record<SpotCategory, number>;
 }
 
 function createReportStatusCounts(): Record<ReportStatus, number> {
@@ -52,7 +49,7 @@ function createReportStatusCounts(): Record<ReportStatus, number> {
 function mapCategoryCounts(
   counts: Record<SpotCategory, number>
 ): CategoryCount[] {
-  return CATEGORIES.map((category) => ({
+  return INTERNAL_SPOT_CATEGORIES.map((category) => ({
     category,
     count: counts[category],
   }));
@@ -95,16 +92,16 @@ export async function loadAdminAnalyticsSnapshot(): Promise<AdminAnalyticsSnapsh
   const postCategoryCounts = createCategoryCounts();
   postsSnapshot.forEach((docSnap) => {
     const category = docSnap.data().category;
-    if (typeof category === 'string' && category in postCategoryCounts) {
-      postCategoryCounts[category as SpotCategory] += 1;
+    if (isSpotCategory(category)) {
+      postCategoryCounts[category] += 1;
     }
   });
 
   const eventCategoryCounts = createCategoryCounts();
   promotedEventsSnapshot.forEach((docSnap) => {
     const category = docSnap.data().category;
-    if (typeof category === 'string' && category in eventCategoryCounts) {
-      eventCategoryCounts[category as SpotCategory] += 1;
+    if (isSpotCategory(category)) {
+      eventCategoryCounts[category] += 1;
     }
   });
 

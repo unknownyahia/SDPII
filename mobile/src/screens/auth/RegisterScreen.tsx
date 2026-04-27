@@ -1,45 +1,105 @@
 import React from 'react';
 import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppHeader } from '../../components/ui/AppHeader';
-import { Card } from '../../components/ui/Card';
-import { PrimaryButton, SecondaryButton } from '../../components/ui/Button';
-import { ScreenContainer } from '../../components/ui/ScreenContainer';
-import { TextField } from '../../components/ui/TextField';
+import { AuthHeaderCollage } from '../../components/auth/AuthHeaderCollage';
+import { AuthIcon } from '../../components/auth/AuthIcon';
 import { useLocalization } from '../../context/LocalizationContext';
 import {
   AuthValidationError,
   getAuthErrorFeedback,
   registerUser,
 } from '../../services/authService';
-import { spacing, typography } from '../../theme/designSystem';
+import { authSharedStyles } from '../../theme/authTheme';
 import { showAlert } from '../../utils/showAlert';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
 export function RegisterScreen({ navigation }: Props) {
-  const { getTextAlign, isRTL, t } = useLocalization();
+  const { getRowDirection, getTextAlign, isRTL, language, t } = useLocalization();
+  const [fullName, setFullName] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [confirmPassword, setConfirmPassword] = React.useState('');
+  const [securePassword, setSecurePassword] = React.useState(true);
+  const [secureConfirmPassword, setSecureConfirmPassword] = React.useState(true);
+  const [agreed, setAgreed] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState('');
+
+  const textAlign = getTextAlign();
+  const writingDirection = isRTL ? 'rtl' : 'ltr';
+  const title = language === 'ar' ? 'إنشاء حساب' : 'Create your account';
+  const subtitle =
+    language === 'ar'
+      ? 'انضم إلى سبوتس لاكتشاف أفضل الأماكن والفعاليات المحلية في قطر.'
+      : 'Join Spots to discover the best local places and events in Qatar.';
 
   const handleRegister = async () => {
+    if (loading) {
+      return;
+    }
+
+    setError('');
+
+    if (!fullName.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
+      setError(
+        language === 'ar'
+          ? 'يرجى إكمال جميع الحقول المطلوبة.'
+          : 'Please complete all required fields.'
+      );
+      return;
+    }
+
+    if (confirmPassword !== password) {
+      setError(
+        language === 'ar'
+          ? 'كلمتا المرور غير متطابقتين.'
+          : 'Passwords do not match.'
+      );
+      return;
+    }
+
+    if (!agreed) {
+      setError(
+        language === 'ar'
+          ? 'يرجى الموافقة على الشروط وسياسة الخصوصية.'
+          : 'Please agree to the Terms and Privacy Policy.'
+      );
+      return;
+    }
+
     setLoading(true);
     try {
-      await registerUser({ email, password });
+      await registerUser({
+        email: email.trim(),
+        password,
+        username: fullName.trim(),
+      });
+      setFullName('');
       setEmail('');
       setPassword('');
-    } catch (error: any) {
-      if (error instanceof AuthValidationError) {
-        showAlert(t('auth.missingData'), error.message);
+      setConfirmPassword('');
+      setAgreed(false);
+    } catch (caughtError) {
+      if (caughtError instanceof AuthValidationError) {
+        setError(caughtError.message);
+        showAlert(t('auth.missingData'), caughtError.message);
       } else {
-        const feedback = getAuthErrorFeedback(error, 'register');
+        const feedback = getAuthErrorFeedback(caughtError, 'register');
+        setError(feedback.message);
         showAlert(feedback.title, feedback.message);
       }
     } finally {
@@ -48,97 +108,272 @@ export function RegisterScreen({ navigation }: Props) {
   };
 
   return (
-    <ScreenContainer keyboardAvoiding>
-      <View style={styles.content}>
-        <AppHeader
-          eyebrow={t('auth.register.eyebrow')}
-          title={t('auth.register.title')}
-          subtitle={t('auth.register.subtitle')}
-        />
-
-        <Card style={styles.card}>
-          <Text
-            style={[
-              styles.cardTitle,
-              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-            ]}
-          >
-            {t('auth.register.cardTitle')}
-          </Text>
-          <Text
-            style={[
-              styles.cardSubtitle,
-              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-            ]}
-          >
-            {t('auth.register.cardSubtitle')}
-          </Text>
-
-          <View style={styles.form}>
-            <TextField
-              label={t('auth.login.emailLabel')}
-              autoCapitalize="none"
-              autoComplete="email"
-              autoCorrect={false}
-              keyboardType="email-address"
-              placeholder={t('auth.login.emailPlaceholder')}
-              value={email}
-              onChangeText={setEmail}
-            />
-
-            <TextField
-              label={t('auth.login.passwordLabel')}
-              autoCapitalize="none"
-              autoComplete="new-password"
-              placeholder={t('auth.register.passwordPlaceholder')}
-              secureTextEntry
-              returnKeyType="done"
-              value={password}
-              onChangeText={setPassword}
-              onSubmitEditing={handleRegister}
-            />
+    <SafeAreaView style={authSharedStyles.screen} edges={['top', 'left', 'right']}>
+      <KeyboardAvoidingView
+        style={authSharedStyles.keyboardAvoiding}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          style={authSharedStyles.screen}
+          contentContainerStyle={authSharedStyles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.topBarOnlyBrand}>
+            <Text style={authSharedStyles.brand}>Spots</Text>
           </View>
 
-          <View style={styles.actions}>
-            <PrimaryButton
-              label={t('auth.register.submit')}
-              loading={loading}
-              onPress={handleRegister}
-            />
-            <SecondaryButton
-              label={t('auth.register.secondary')}
+          <Text
+            style={[
+              authSharedStyles.title,
+              { writingDirection, textAlign: 'center' },
+            ]}
+          >
+            {title}
+          </Text>
+          <Text
+            style={[
+              authSharedStyles.subtitle,
+              { writingDirection, textAlign: 'center' },
+            ]}
+          >
+            {subtitle}
+          </Text>
+
+          <AuthHeaderCollage mode="register" />
+
+          <View style={authSharedStyles.formCard}>
+            <View style={[authSharedStyles.fieldWrap, { flexDirection: getRowDirection() }]}>
+              <AuthIcon
+                name="person"
+                size={22}
+                color="#9A9088"
+                style={styles.fieldIcon}
+              />
+              <TextInput
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder={language === 'ar' ? 'الاسم الكامل' : 'Full name'}
+                placeholderTextColor="#A09992"
+                editable={!loading}
+                autoComplete="name"
+                style={[
+                  authSharedStyles.input,
+                  { textAlign, writingDirection },
+                ]}
+              />
+            </View>
+
+            <View style={[authSharedStyles.fieldWrap, { flexDirection: getRowDirection() }]}>
+              <AuthIcon
+                name="mail"
+                size={22}
+                color="#9A9088"
+                style={styles.fieldIcon}
+              />
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder={t('auth.login.emailLabel')}
+                placeholderTextColor="#A09992"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                autoCorrect={false}
+                editable={!loading}
+                style={[
+                  authSharedStyles.input,
+                  { textAlign, writingDirection },
+                ]}
+              />
+            </View>
+
+            <View style={[authSharedStyles.fieldWrap, { flexDirection: getRowDirection() }]}>
+              <AuthIcon
+                name="lock"
+                size={22}
+                color="#9A9088"
+                style={styles.fieldIcon}
+              />
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder={t('auth.login.passwordLabel')}
+                placeholderTextColor="#A09992"
+                secureTextEntry={securePassword}
+                autoCapitalize="none"
+                autoComplete="new-password"
+                editable={!loading}
+                style={[
+                  authSharedStyles.input,
+                  { textAlign, writingDirection },
+                ]}
+              />
+              <Pressable
+                accessibilityLabel={securePassword ? 'Show password' : 'Hide password'}
+                accessibilityRole="button"
+                disabled={loading}
+                onPress={() => setSecurePassword(value => !value)}
+                style={styles.eyeButton}
+              >
+                <AuthIcon
+                  name={securePassword ? 'eye' : 'eye-off'}
+                  size={22}
+                  color="#9A9088"
+                />
+              </Pressable>
+            </View>
+
+            <View style={[authSharedStyles.fieldWrap, { flexDirection: getRowDirection() }]}>
+              <AuthIcon
+                name="lock"
+                size={22}
+                color="#9A9088"
+                style={styles.fieldIcon}
+              />
+              <TextInput
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder={
+                  language === 'ar' ? 'تأكيد كلمة المرور' : 'Confirm password'
+                }
+                placeholderTextColor="#A09992"
+                secureTextEntry={secureConfirmPassword}
+                autoCapitalize="none"
+                autoComplete="new-password"
+                editable={!loading}
+                returnKeyType="done"
+                onSubmitEditing={handleRegister}
+                style={[
+                  authSharedStyles.input,
+                  { textAlign, writingDirection },
+                ]}
+              />
+              <Pressable
+                accessibilityLabel={secureConfirmPassword ? 'Show password' : 'Hide password'}
+                accessibilityRole="button"
+                disabled={loading}
+                onPress={() => setSecureConfirmPassword(value => !value)}
+                style={styles.eyeButton}
+              >
+                <AuthIcon
+                  name={secureConfirmPassword ? 'eye' : 'eye-off'}
+                  size={22}
+                  color="#9A9088"
+                />
+              </Pressable>
+            </View>
+
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: agreed }}
               disabled={loading}
-              onPress={() => navigation.goBack()}
-            />
+              onPress={() => setAgreed(value => !value)}
+              style={[authSharedStyles.checkboxRow, { flexDirection: getRowDirection() }]}
+            >
+              <View
+                style={[
+                  authSharedStyles.checkbox,
+                  agreed && authSharedStyles.checkboxChecked,
+                ]}
+              >
+                {agreed ? (
+                  <AuthIcon name="check" size={17} color="#F55445" />
+                ) : null}
+              </View>
+
+              <Text
+                style={[
+                  authSharedStyles.checkboxText,
+                  { textAlign, writingDirection },
+                ]}
+              >
+                {language === 'ar' ? 'أوافق على ' : 'I agree to the '}
+                <Text style={authSharedStyles.linkText}>
+                  {language === 'ar'
+                    ? 'الشروط وسياسة الخصوصية'
+                    : 'Terms and Privacy Policy'}
+                </Text>
+              </Text>
+            </Pressable>
+
+            {error ? (
+              <Text
+                style={[
+                  authSharedStyles.errorText,
+                  { textAlign, writingDirection },
+                ]}
+              >
+                {error}
+              </Text>
+            ) : null}
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleRegister}
+              disabled={loading}
+              style={({ pressed }) => [
+                authSharedStyles.primaryButton,
+                pressed && authSharedStyles.primaryButtonPressed,
+                loading && authSharedStyles.primaryButtonDisabled,
+              ]}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={authSharedStyles.primaryButtonLabel}>
+                  {language === 'ar' ? 'إنشاء الحساب' : 'Create Account ->'}
+                </Text>
+              )}
+            </Pressable>
           </View>
-        </Card>
-      </View>
-    </ScreenContainer>
+
+          <View style={styles.divider} />
+
+          <View
+            style={[
+              authSharedStyles.bottomLinkRow,
+              { flexDirection: getRowDirection() },
+            ]}
+          >
+            <Text style={[authSharedStyles.bottomLinkText, { writingDirection }]}>
+              {language === 'ar' ? 'لديك حساب بالفعل؟' : 'Already have an account?'}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={loading}
+              onPress={() => navigation.navigate('Login')}
+            >
+              <Text style={authSharedStyles.bottomLinkAction}>
+                {language === 'ar' ? 'تسجيل الدخول' : 'Sign in'}
+              </Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    flex: 1,
+  topBarOnlyBrand: {
+    minHeight: 52,
     justifyContent: 'center',
-    width: '100%',
-    maxWidth: 520,
-    alignSelf: 'center',
+    marginBottom: 4,
   },
-  card: {
-    gap: spacing.xl,
+  fieldIcon: {
+    width: 26,
+    textAlign: 'center',
   },
-  cardTitle: {
-    ...typography.title,
+  eyeButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  cardSubtitle: {
-    ...typography.bodyMuted,
-    marginTop: spacing.xs,
-  },
-  form: {
-    gap: spacing.md,
-  },
-  actions: {
-    gap: spacing.md,
+  divider: {
+    height: 1,
+    backgroundColor: '#E9E2DA',
+    marginTop: 18,
   },
 });

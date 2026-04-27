@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 type PendingAlert = {
   title: string;
@@ -41,6 +41,16 @@ function flushPendingAlerts() {
 
   const nextAlert = buildBatchedAlert(pendingAlerts);
   pendingAlerts = [];
+
+  if (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    typeof window.alert === 'function'
+  ) {
+    window.alert(buildAlertText(nextAlert.title, nextAlert.message));
+    return;
+  }
+
   Alert.alert(nextAlert.title, nextAlert.message);
 }
 

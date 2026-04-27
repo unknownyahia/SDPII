@@ -8,6 +8,7 @@ import {
   getLocationDisplayName,
   requestForegroundLocationPermission,
 } from './locationService';
+import type { LocationOverride } from './locationPresets';
 import { getPromotedEventAccessState } from './subscriptionService';
 
 export class EventValidationError extends Error {}
@@ -38,6 +39,8 @@ type CreateEventInput = {
   category: SpotCategory;
   startTime: string;
   endTime: string;
+  activePromotedEventsCount?: number;
+  locationOverride?: LocationOverride | null;
 };
 
 type CreateEventResult = {
@@ -65,7 +68,7 @@ export async function createPromotedEvent(
   const accessState = getPromotedEventAccessState({
     userRole: input.userRole,
     subscription: input.subscription,
-    activePromotedEventsCount: 0,
+    activePromotedEventsCount: input.activePromotedEventsCount ?? 0,
   });
 
   if (!accessState.allowed) {
@@ -89,15 +92,23 @@ export async function createPromotedEvent(
     throw new EventValidationError('End time must be later than start time.');
   }
 
-  const { status } = await requestForegroundLocationPermission();
-  if (status !== 'granted') {
-    throw new EventPermissionError(
-      'We need location permission to place the event on the map.'
-    );
-  }
+  let latitude = input.locationOverride?.latitude;
+  let longitude = input.locationOverride?.longitude;
+  let locationName = input.locationOverride?.locationName ?? '';
 
-  const { latitude, longitude } = await getCurrentCoordinates();
-  const locationName = await getLocationDisplayName(latitude, longitude);
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+    const { status } = await requestForegroundLocationPermission();
+    if (status !== 'granted') {
+      throw new EventPermissionError(
+        'We need location permission to place the event on the map.'
+      );
+    }
+
+    const coordinates = await getCurrentCoordinates();
+    latitude = coordinates.latitude;
+    longitude = coordinates.longitude;
+    locationName = await getLocationDisplayName(latitude, longitude);
+  }
 
   await createPromotedEventCallable({
     title,

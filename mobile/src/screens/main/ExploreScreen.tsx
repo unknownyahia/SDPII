@@ -1,6 +1,9 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   Image,
+  Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,13 +11,26 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import MapView, { Marker, type Region } from 'react-native-maps';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
+import MapView, {
+  Heatmap,
+  Marker,
+  PROVIDER_GOOGLE,
+  type Region,
+} from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { DiscoveryHeroImage } from '../../components/explore/DiscoveryHeroImage';
+import { PostInteractionPanel } from '../../components/explore/PostInteractionPanel';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { StatusBanner } from '../../components/ui/StatusBanner';
+import {
+  EXPLORE_CATEGORY_OPTIONS,
+  getCategoryOptionLabel,
+  isExploreCategoryId,
+  type ExploreCategoryId,
+} from '../../constants/categories';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalization } from '../../context/LocalizationContext';
 import { subscribeToEvents } from '../../repositories/eventRepository';
@@ -28,20 +44,16 @@ import {
   DEFAULT_EXPLORE_REGION,
   filterExploreEvents,
   filterExplorePosts,
-  type CategoryFilter,
 } from '../../services/exploreService';
 import {
   FavoriteValidationError,
   observeFavoritePostIds,
   toggleFavoritePost,
 } from '../../services/favoriteService';
-import {
-  getCurrentCoordinates,
-  requestForegroundLocationPermission,
-} from '../../services/locationService';
 import { observeCommentCountsByPost } from '../../services/commentService';
 import { observeLikeCountsByPost } from '../../services/reactionService';
-import { colors, radius, spacing, typography } from '../../theme/designSystem';
+import { summarizeAreaPosts } from '../../services/summaryService';
+import { colors } from '../../theme/designSystem';
 import {
   getBlockedDataMessage,
   getErrorMessage,
@@ -50,31 +62,14 @@ import {
 import { showAlert } from '../../utils/showAlert';
 import type { DiscoverySpot } from '../../types/discovery';
 import type { PromotedEvent } from '../../types/event';
+import type { MainTabParamList } from '../../navigation/types';
 import type { SpotPost } from '../../types/post';
 
-type ExploreChipId =
-  | 'all'
-  | 'food'
-  | 'coffee'
-  | 'study'
-  | 'outdoors'
-  | 'events'
-  | 'family'
-  | 'sights'
-  | 'more';
+type ExploreChipId = ExploreCategoryId;
 
-type ExploreChip = {
-  id: ExploreChipId;
-  labelEn: string;
-  labelAr: string;
-  glyph: string;
-  mapCategory: CategoryFilter;
-  keywords?: readonly string[];
-};
-
-type ExploreResultCard = {
+type ExploreCard = {
   id: string;
-  kind: 'spot' | 'event' | 'sample';
+  kind: 'spot' | 'event';
   title: string;
   subtitle: string;
   description: string;
@@ -87,219 +82,52 @@ type ExploreResultCard = {
   postId?: string;
   latitude: number;
   longitude: number;
-  sourceSpot?: DiscoverySpot;
+  rankingScore: number;
+  createdAt?: unknown;
+  rawPost?: SpotPost;
+  rawEvent?: PromotedEvent;
+};
+
+type NativeHeatPoint = {
+  latitude: number;
+  longitude: number;
+  weight: number;
+};
+
+type NativeMapBounds = {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+};
+
+type NativeBrowserCoordinates = {
+  latitude: number;
+  longitude: number;
 };
 
 const MOBILE_AVATAR_FALLBACK_URI =
   'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80';
 
-const CHIPS: readonly ExploreChip[] = [
-  {
-    id: 'all',
-    labelEn: 'All',
-    labelAr: 'الكل',
-    glyph: '',
-    mapCategory: 'all',
-  },
-  {
-    id: 'food',
-    labelEn: 'Food & Drinks',
-    labelAr: 'مأكولات ومشروبات',
-    glyph: '🍽',
-    mapCategory: 'all',
-    keywords: ['food', 'drink', 'dine', 'restaurant', 'bites', 'lunch', 'dinner', 'cafe'],
-  },
-  {
-    id: 'coffee',
-    labelEn: 'Coffee',
-    labelAr: 'قهوة',
-    glyph: '☕',
-    mapCategory: 'all',
-    keywords: ['coffee', 'espresso', 'cafe', 'café'],
-  },
-  {
-    id: 'study',
-    labelEn: 'Study & Work',
-    labelAr: 'دراسة وعمل',
-    glyph: '📖',
-    mapCategory: 'all',
-    keywords: ['study', 'work', 'desk', 'wifi', 'lounge', 'library', 'quiet'],
-  },
-  {
-    id: 'outdoors',
-    labelEn: 'Outdoors',
-    labelAr: 'خارجي',
-    glyph: '△',
-    mapCategory: 'all',
-    keywords: ['outdoor', 'walk', 'beach', 'park', 'promenade', 'waterfront', 'corniche'],
-  },
-  {
-    id: 'events',
-    labelEn: 'Events',
-    labelAr: 'فعاليات',
-    glyph: '✧',
-    mapCategory: 'event',
-  },
-  {
-    id: 'family',
-    labelEn: 'Family',
-    labelAr: 'عائلة',
-    glyph: '◎',
-    mapCategory: 'all',
-    keywords: ['family', 'kids', 'play', 'lawn'],
-  },
-  {
-    id: 'sights',
-    labelEn: 'Sights',
-    labelAr: 'معالم',
-    glyph: '⌖',
-    mapCategory: 'sighting',
-  },
-  {
-    id: 'more',
-    labelEn: 'More filters',
-    labelAr: 'مزيد من الفلاتر',
-    glyph: '⋯',
-    mapCategory: 'all',
-  },
-];
+const CHIPS = EXPLORE_CATEGORY_OPTIONS;
 
-const FALLBACK_RESULT_ORDER = [
-  'lusail boulevard bites lunch crowd reset',
-  'saha walk coffee quiet desk hours',
-  'minaretein study lounge notes + coffee',
-  'diplomatic espresso room morning table',
-] as const;
-
-const FALLBACK_RESULTS: readonly ExploreResultCard[] = [
-  {
-    id: 'sample-lusail-bites',
-    kind: 'sample',
-    title: 'Lusail Boulevard Bites Lunch Crowd Reset',
-    subtitle: 'Lusail Boulevard Bites • Lusail',
-    description: 'Bustling lunch scene with global flavors and a lively street vibe.',
-    timeLabel: 'Today • 4:15 PM',
-    distanceLabel: '2.1 km away',
-    imageUrl:
-      'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1200&q=80',
-    signal: 'trending',
-    ratingLabel: '4.8 (118)',
-    saved: false,
-    latitude: 25.3989,
-    longitude: 51.5204,
-  },
-  {
-    id: 'sample-saha-coffee',
-    kind: 'sample',
-    title: 'Saha Walk Coffee Quiet Desk Hours',
-    subtitle: 'Saha Walk Coffee • Education City',
-    description: 'Quiet desk seating, great coffee, and fast Wi-Fi.',
-    timeLabel: 'Today • 1:15 PM',
-    distanceLabel: '1.3 km away',
-    ratingLabel: '4.7 (94)',
-    imageUrl:
-      'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80',
-    saved: false,
-    latitude: 25.3072,
-    longitude: 51.4415,
-  },
-  {
-    id: 'sample-minaretein-lounge',
-    kind: 'sample',
-    title: 'Minaretein Study Lounge Notes + Coffee',
-    subtitle: 'Minaretein Study Lounge • Education City',
-    description: 'Focus-friendly lounge with natural light and relaxed seating.',
-    timeLabel: 'Today • 2:30 PM',
-    distanceLabel: '2.0 km away',
-    imageUrl:
-      'https://images.unsplash.com/photo-1552566626-52f8b828add9?auto=format&fit=crop&w=1200&q=80',
-    signal: 'promoted',
-    saved: false,
-    latitude: 25.3125,
-    longitude: 51.4472,
-  },
-  {
-    id: 'sample-diplomatic-espresso',
-    kind: 'sample',
-    title: 'Diplomatic Espresso Room Morning Table',
-    subtitle: 'Diplomatic Espresso Room • West Bay',
-    description: 'Morning table, strong espresso, clear meetings.',
-    timeLabel: 'Today • 12:45 PM',
-    distanceLabel: '2.1 km away',
-    ratingLabel: '4.6 (67)',
-    imageUrl:
-      'https://images.unsplash.com/photo-1511920170033-f8396924c348?auto=format&fit=crop&w=1200&q=80',
-    saved: false,
-    latitude: 25.3282,
-    longitude: 51.5337,
-  },
-];
-
-const MAP_CLUSTER_OVERLAYS = [
-  { id: 'cluster-12', label: '12', top: 36, left: 186 },
-  { id: 'cluster-8', label: '8', top: 112, left: 190 },
-  { id: 'cluster-5', label: '5', top: 172, left: 252 },
-] as const;
-
-function normalize(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function textContainsAny(haystack: string, values: readonly string[]) {
-  return values.some(value => haystack.includes(value));
-}
-
-function getDateBadge(language: 'en' | 'ar') {
-  const now = new Date();
-  const locale = language === 'ar' ? 'ar-QA' : 'en-US';
-  const month = now
-    .toLocaleString(locale, { month: 'short' })
-    .replace('.', '')
-    .toUpperCase();
-  const day = now.toLocaleString(locale, { day: '2-digit' });
-
-  return { month, day };
-}
-
-function formatEventTime(value: unknown, language: 'en' | 'ar') {
-  const timestampMs = getTimestampMs(value);
-
-  if (timestampMs === null) {
-    return language === 'ar' ? 'اليوم • لاحقًا' : 'Today • Time soon';
-  }
-
-  const date = new Date(timestampMs);
-  const locale = language === 'ar' ? 'ar-QA' : 'en-US';
-  const timeLabel = new Intl.DateTimeFormat(locale, {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(date);
-
-  return language === 'ar' ? `اليوم • ${timeLabel}` : `Today • ${timeLabel}`;
-}
-
-function getSpotTimeLabel(index: number, language: 'en' | 'ar') {
-  const english = ['Today • 4:15 PM', 'Today • 1:15 PM', 'Today • 2:30 PM', 'Today • 12:45 PM'];
-  const arabic = ['اليوم • ٤:١٥ م', 'اليوم • ١:١٥ م', 'اليوم • ٢:٣٠ م', 'اليوم • ١٢:٤٥ م'];
-
-  const values = language === 'ar' ? arabic : english;
-  return values[index % values.length];
-}
-
-function getResultRank(title: string) {
-  const normalizedTitle = normalize(title);
-  const matchIndex = FALLBACK_RESULT_ORDER.findIndex(preferred =>
-    normalizedTitle.includes(preferred)
+function BellGlyph() {
+  return (
+    <View style={styles.bellIcon}>
+      <View style={styles.bellStem} />
+      <View style={styles.bellBody} />
+      <View style={styles.bellClapper} />
+      <View style={styles.bellBase} />
+      <View style={styles.bellDot} />
+    </View>
   );
-
-  return matchIndex === -1 ? 999 : matchIndex;
 }
 
-function SearchGlyph({ color = colors.primary }: { color?: string }) {
+function SearchGlyph() {
   return (
     <View style={styles.searchGlyph}>
-      <View style={[styles.searchGlyphCircle, { borderColor: color }]} />
-      <View style={[styles.searchGlyphHandle, { backgroundColor: color }]} />
+      <View style={styles.searchGlyphCircle} />
+      <View style={styles.searchGlyphHandle} />
     </View>
   );
 }
@@ -315,354 +143,381 @@ function PinGlyph() {
   );
 }
 
-function BellGlyph() {
+function normalize(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function hasValidCoordinate(card: Pick<ExploreCard, 'latitude' | 'longitude'>) {
   return (
-    <View style={styles.bellIcon}>
-      <View style={styles.bellStem} />
-      <View style={styles.bellBody} />
-      <View style={styles.bellClapper} />
-      <View style={styles.bellBase} />
-      <View style={styles.bellDot} />
-    </View>
+    Number.isFinite(card.latitude) &&
+    Number.isFinite(card.longitude) &&
+    Math.abs(card.latitude) <= 90 &&
+    Math.abs(card.longitude) <= 180
   );
 }
 
-function BookmarkGlyph({ active }: { active: boolean }) {
+function normalizeHeatTimestamp(value: unknown): number | null {
+  if (!value) return null;
+
+  if (typeof value === 'string' || typeof value === 'number' || value instanceof Date) {
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  if (typeof value === 'object' && value !== null && 'toDate' in value) {
+    try {
+      const maybeDate = (value as { toDate?: () => Date }).toDate?.();
+      if (!maybeDate) return null;
+      const parsed = maybeDate.getTime();
+      return Number.isFinite(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function getNativePostHeatWeight(post: SpotPost): number {
+  const now = Date.now();
+  const createdAt = normalizeHeatTimestamp(post.createdAt);
+  const ageHours = createdAt ? Math.max(0, (now - createdAt) / (1000 * 60 * 60)) : 24;
+
+  let weight = 0.52;
+
+  if (post.category === 'event') weight += 0.08;
+  if (post.category === 'sighting') weight += 0.04;
+  if (post.category === 'weather') weight += 0.02;
+  if (post.category === 'fishing') weight += 0.06;
+
+  if (ageHours < 2) weight += 0.22;
+  else if (ageHours < 6) weight += 0.14;
+  else if (ageHours < 24) weight += 0.06;
+
+  return Math.max(0.24, Math.min(1, weight));
+}
+
+function getNativeEventHeatWeight(event: PromotedEvent): number {
+  const now = Date.now();
+  const startTime = normalizeHeatTimestamp(event.startTime);
+  const hoursUntilStart = startTime ? (startTime - now) / (1000 * 60 * 60) : 24;
+
+  let weight = event.isPromoted ? 0.92 : 0.76;
+
+  if (hoursUntilStart >= -6 && hoursUntilStart <= 24) weight += 0.08;
+  if (hoursUntilStart >= -1 && hoursUntilStart <= 8) weight += 0.06;
+
+  return Math.max(0.32, Math.min(1, weight));
+}
+
+function buildNativeHeatPoints(
+  posts: SpotPost[],
+  events: PromotedEvent[]
+): NativeHeatPoint[] {
+  const postPoints = posts.map<NativeHeatPoint>(post => ({
+    latitude: post.lat,
+    longitude: post.lng,
+    weight: getNativePostHeatWeight(post),
+  }));
+
+  const eventPoints = events
+    .filter(event => event.status === 'active')
+    .map<NativeHeatPoint>(event => ({
+      latitude: event.lat,
+      longitude: event.lng,
+      weight: getNativeEventHeatWeight(event),
+    }));
+
+  return [...postPoints, ...eventPoints];
+}
+
+function nativeRegionToBounds(region: Region): NativeMapBounds {
+  return {
+    north: region.latitude + region.latitudeDelta / 2,
+    south: region.latitude - region.latitudeDelta / 2,
+    east: region.longitude + region.longitudeDelta / 2,
+    west: region.longitude - region.longitudeDelta / 2,
+  };
+}
+
+function makeNativeSelectionRegion(
+  latitude: number,
+  longitude: number,
+  currentRegion: Region | null
+): Region {
+  return {
+    latitude,
+    longitude,
+    latitudeDelta: currentRegion?.latitudeDelta ?? 0.08,
+    longitudeDelta: currentRegion?.longitudeDelta ?? 0.08,
+  };
+}
+
+function isCardInsideRegion(
+  card: Pick<ExploreCard, 'latitude' | 'longitude'>,
+  targetRegion: Region
+) {
+  if (!hasValidCoordinate(card)) {
+    return false;
+  }
+
+  const latitudeHalfSpan = Math.max(targetRegion.latitudeDelta / 2, 0.005);
+  const longitudeHalfSpan = Math.max(targetRegion.longitudeDelta / 2, 0.005);
+
   return (
-    <View style={[styles.bookmarkGlyph, active && styles.bookmarkGlyphActive]}>
-      <View style={styles.bookmarkGlyphBody} />
-      <View style={styles.bookmarkGlyphFoldLeft} />
-      <View style={styles.bookmarkGlyphFoldRight} />
-    </View>
+    card.latitude >= targetRegion.latitude - latitudeHalfSpan &&
+    card.latitude <= targetRegion.latitude + latitudeHalfSpan &&
+    card.longitude >= targetRegion.longitude - longitudeHalfSpan &&
+    card.longitude <= targetRegion.longitude + longitudeHalfSpan
   );
 }
 
-function ExploreResultRow({
-  card,
-  index,
-  isRTL,
-  textAlign,
-  language,
-  onToggleSave,
-  saveLoading,
-  onPress,
-}: {
-  card: ExploreResultCard;
-  index: number;
-  isRTL: boolean;
-  textAlign: 'left' | 'right';
-  language: 'en' | 'ar';
-  onToggleSave: () => void;
-  saveLoading: boolean;
-  onPress: () => void;
-}) {
-  const showSignal = index === 0 || index === 2 || card.signal;
-  const signal = index === 2 ? 'promoted' : card.signal ?? 'trending';
-  const showDateBadge = index === 3;
-  const dateBadge = getDateBadge(language);
-  const ratingLabel = index === 1 ? '4.7 (94)' : index === 3 ? '4.6 (67)' : card.ratingLabel;
+function formatEventTime(value: unknown, language: 'en' | 'ar') {
+  const timestampMs = getTimestampMs(value);
 
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.resultCard, pressed && styles.resultCardPressed]}
-    >
-      <View style={styles.resultThumbWrap}>
-        <DiscoveryHeroImage
-          hero={{
-            imageUrl: card.imageUrl,
-            eyebrow: '',
-            title: card.title,
-            subtitle: card.subtitle,
-            badgeLabel: null,
-          }}
-          height={106}
-          style={styles.resultThumb}
-        />
+  if (timestampMs === null) {
+    return language === 'ar' ? 'اليوم • لاحقًا' : 'Today • Time soon';
+  }
 
-        {showDateBadge ? (
-          <View style={styles.dateBadge}>
-            <Text style={styles.dateBadgeMonth}>{dateBadge.month}</Text>
-            <Text style={styles.dateBadgeDay}>{dateBadge.day}</Text>
-          </View>
-        ) : null}
+  const date = new Date(timestampMs);
+  const locale = language === 'ar' ? 'ar-QA' : 'en-US';
+  const day = new Date();
+  const sameDay =
+    date.getFullYear() === day.getFullYear() &&
+    date.getMonth() === day.getMonth() &&
+    date.getDate() === day.getDate();
 
-        {index === 2 ? (
-          <View style={styles.mediaBadge}>
-            <Text style={styles.mediaBadgeText}>{language === 'ar' ? 'مروج' : 'Promoted'}</Text>
-          </View>
-        ) : null}
-      </View>
+  const timeLabel = new Intl.DateTimeFormat(locale, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
 
-      <View style={styles.resultBody}>
-        <Text
-          style={[
-            styles.resultTitle,
-            { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
-          ]}
-          numberOfLines={2}
-        >
-          {card.title}
-        </Text>
+  if (sameDay) {
+    return language === 'ar' ? `اليوم • ${timeLabel}` : `Today • ${timeLabel}`;
+  }
 
-        <Text
-          style={[
-            styles.resultSubtitle,
-            { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
-          ]}
-          numberOfLines={1}
-        >
-          {card.subtitle}
-        </Text>
+  const shortDate = new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
 
-        <Text
-          style={[
-            styles.resultTime,
-            { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
-          ]}
-          numberOfLines={1}
-        >
-          {card.timeLabel}
-        </Text>
+  return `${shortDate} • ${timeLabel}`;
+}
 
-        <Text
-          style={[
-            styles.resultDescription,
-            { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
-          ]}
-          numberOfLines={1}
-        >
-          {card.description}
-        </Text>
+function formatSpotTime(value: unknown, language: 'en' | 'ar') {
+  const timestampMs = getTimestampMs(value);
 
-        {showSignal ? (
-          <View
-            style={[
-              styles.signalPill,
-              signal === 'promoted' && styles.signalPillPromoted,
-            ]}
-          >
-            <Text
-              style={[
-                styles.signalPillGlyph,
-                signal === 'promoted' && styles.signalPillGlyphPromoted,
-              ]}
-            >
-              {signal === 'promoted' ? '✦' : '↗'}
-            </Text>
-            <Text
-              style={[
-                styles.signalPillText,
-                signal === 'promoted' && styles.signalPillTextPromoted,
-                { writingDirection: isRTL ? 'rtl' : 'ltr' },
-              ]}
-            >
-              {signal === 'promoted'
-                ? language === 'ar'
-                  ? 'مروج'
-                  : 'Promoted'
-                : language === 'ar'
-                  ? 'رائج'
-                  : 'Trending'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.resultRatingRow}>
-            <Text style={styles.resultStar}>★</Text>
-            <Text
-              style={[
-                styles.resultRating,
-                { writingDirection: isRTL ? 'rtl' : 'ltr' },
-              ]}
-            >
-              {ratingLabel}
-            </Text>
-            <Text style={styles.resultRatingDot}>•</Text>
-            <Text
-              style={[
-                styles.resultRating,
-                { writingDirection: isRTL ? 'rtl' : 'ltr' },
-              ]}
-            >
-              {card.distanceLabel}
-            </Text>
-          </View>
-        )}
-      </View>
+  if (timestampMs === null) {
+    return language === 'ar' ? 'اليوم' : 'Today';
+  }
 
-      <Pressable
-        accessibilityRole="button"
-        disabled={saveLoading || !card.postId}
-        onPress={onToggleSave}
-        style={({ pressed }) => [
-          styles.resultSave,
-          pressed && card.postId ? styles.resultSavePressed : null,
-          card.saved && styles.resultSaveActive,
-        ]}
-      >
-        {saveLoading ? (
-          <Text style={styles.resultSaveLoading}>...</Text>
-        ) : (
-          <BookmarkGlyph active={card.saved} />
-        )}
-      </Pressable>
-    </Pressable>
-  );
+  const date = new Date(timestampMs);
+  const locale = language === 'ar' ? 'ar-QA' : 'en-US';
+
+  return new Intl.DateTimeFormat(locale, {
+    weekday: undefined,
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function getCardImage(imageUrl?: string | null) {
+  if (imageUrl && imageUrl.trim().length > 0) {
+    return imageUrl;
+  }
+
+  return 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=1200&q=80';
+}
+
+function getSpotRatingLabel(spot: DiscoverySpot) {
+  const engagement = Math.max(spot.commentCount + spot.likeCount, 1);
+  const value = (4.3 + Math.min(0.6, engagement * 0.02)).toFixed(1);
+  return `${value} (${engagement})`;
 }
 
 export function ExploreScreen() {
-  const { user } = useAuth();
-  const { getRowDirection, getTextAlign, isRTL, language } = useLocalization();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
+  const route = useRoute<RouteProp<MainTabParamList, 'Explore'>>();
+  const searchInputRef = React.useRef<TextInput>(null);
+  const mapRef = React.useRef<MapView | null>(null);
+  const lastSelectionKeyRef = React.useRef<string>('');
+  const latestMapBoundsRef = React.useRef<NativeMapBounds>(
+    nativeRegionToBounds(DEFAULT_EXPLORE_REGION)
+  );
+  const { user } = useAuth();
+  const {
+    language,
+    isRTL,
+    getTextAlign,
+    getRowDirection,
+    t,
+  } = useLocalization();
 
+  const [loading, setLoading] = React.useState(true);
   const [posts, setPosts] = React.useState<SpotPost[]>([]);
   const [events, setEvents] = React.useState<PromotedEvent[]>([]);
-  const [postsLoading, setPostsLoading] = React.useState(true);
-  const [eventsLoading, setEventsLoading] = React.useState(true);
   const [favoritePostIds, setFavoritePostIds] = React.useState<string[]>([]);
   const [commentCountsByPostId, setCommentCountsByPostId] = React.useState<Record<string, number>>({});
   const [likeCountsByPostId, setLikeCountsByPostId] = React.useState<Record<string, number>>({});
-  const [whatQuery, setWhatQuery] = React.useState('');
+  const [dataIssue, setDataIssue] = React.useState<string | null>(null);
+  const [savingCardId, setSavingCardId] = React.useState<string | null>(null);
+  const [selectedChipId, setSelectedChipId] = React.useState<ExploreChipId>('all');
+  const [selectedCardId, setSelectedCardId] = React.useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = React.useState('');
   const [whereQuery, setWhereQuery] = React.useState(
     language === 'ar' ? 'قطر' : 'Qatar'
   );
-  const [activeChip, setActiveChip] = React.useState<ExploreChipId>('all');
-  const [region, setRegion] = React.useState<Region>(DEFAULT_EXPLORE_REGION);
-  const [browserLocation, setBrowserLocation] = React.useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
-  const [dataIssue, setDataIssue] = React.useState<string | null>(null);
   const [refreshToken, setRefreshToken] = React.useState(0);
-  const [savingCardId, setSavingCardId] = React.useState<string | null>(null);
+  const [region, setRegion] = React.useState<Region>(DEFAULT_EXPLORE_REGION);
+  const [appliedMapRegion, setAppliedMapRegion] = React.useState<Region | null>(null);
+  const [isScrollEnabled, setIsScrollEnabled] = React.useState(true);
+  const [summaryLoading, setSummaryLoading] = React.useState(false);
+  const [areaSummary, setAreaSummary] = React.useState<string | null>(null);
+  const browserLocation = React.useMemo<NativeBrowserCoordinates | null>(() => null, []);
 
-  const loading = postsLoading || eventsLoading;
-  const avatarInitial = (user?.displayInfo || user?.email || 'Spots').trim().charAt(0).toUpperCase();
+  const textAlign = getTextAlign();
+  const avatarInitial = (user?.displayInfo || user?.email || 'S').trim().charAt(0).toUpperCase();
 
-  const activeChipConfig = React.useMemo(
-    () => CHIPS.find(chip => chip.id === activeChip) ?? CHIPS[0],
-    [activeChip]
+  const activeChip = React.useMemo(
+    () => CHIPS.find(chip => chip.id === selectedChipId) ?? CHIPS[0],
+    [selectedChipId]
   );
 
-  const chipLabel = React.useCallback(
-    (chip: ExploreChip) => (language === 'ar' ? chip.labelAr : chip.labelEn),
-    [language]
-  );
+  const defaultWhereLabel = language === 'ar' ? 'قطر' : 'Qatar';
+  const whatQuery = searchQuery;
+  const activeWhereQuery = React.useMemo(() => {
+    const trimmed = whereQuery.trim();
+    const normalized = normalize(trimmed);
 
-  const handleDataIssue = React.useCallback(
-    (error: unknown, fallbackMessage: string) => {
-      const nextMessage = isDataAccessBlockedError(error)
-        ? getBlockedDataMessage('one or more Explore feeds')
-        : getErrorMessage(error, fallbackMessage);
+    if (!trimmed || normalized === 'qatar' || trimmed === 'قطر') {
+      return '';
+    }
 
-      setDataIssue(current => current ?? nextMessage);
-    },
-    []
-  );
-
-  const handleRetry = React.useCallback(() => {
-    setDataIssue(null);
-    setPostsLoading(true);
-    setEventsLoading(true);
-    setRefreshToken(current => current + 1);
-  }, []);
-
-  React.useEffect(() => {
-    const unsubscribe = subscribeToPosts(
-      nextPosts => {
-        setPosts(nextPosts);
-        setPostsLoading(false);
-      },
-      error => {
-        setPostsLoading(false);
-        handleDataIssue(error, 'Failed to load spots for Explore.');
-      }
-    );
-
-    return unsubscribe;
-  }, [handleDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const unsubscribe = subscribeToEvents(
-      nextEvents => {
-        setEvents(nextEvents);
-        setEventsLoading(false);
-      },
-      error => {
-        setEventsLoading(false);
-        handleDataIssue(error, 'Failed to load events for Explore.');
-      }
-    );
-
-    return unsubscribe;
-  }, [handleDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeFavoritePostIds(user?.id, setFavoritePostIds, error => {
-      handleDataIssue(error, 'Failed to load saved spots.');
-    });
-
-    return unsubscribe;
-  }, [handleDataIssue, refreshToken, user?.id]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeCommentCountsByPost(setCommentCountsByPostId, error => {
-      handleDataIssue(error, 'Failed to load comment activity.');
-    });
-
-    return unsubscribe;
-  }, [handleDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeLikeCountsByPost(setLikeCountsByPostId, error => {
-      handleDataIssue(error, 'Failed to load reaction activity.');
-    });
-
-    return unsubscribe;
-  }, [handleDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const syncToLocation = async () => {
-      try {
-        const { status } = await requestForegroundLocationPermission();
-        if (status !== 'granted') {
-          return;
-        }
-
-        const coords = await getCurrentCoordinates();
-        setBrowserLocation(coords);
-        setRegion(prev => ({
-          ...prev,
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-        }));
-      } catch {
-        // No-op: location remains on default Qatar region.
-      }
-    };
-
-    void syncToLocation();
-  }, []);
+    return normalized;
+  }, [whereQuery]);
 
   React.useEffect(() => {
     setWhereQuery(current => {
-      if (current.trim().length > 0) {
-        return current;
+      const trimmed = current.trim();
+      const normalized = normalize(trimmed);
+
+      if (!trimmed || normalized === 'qatar' || trimmed === 'قطر') {
+        return defaultWhereLabel;
       }
 
-      return language === 'ar' ? 'قطر' : 'Qatar';
+      return current;
     });
-  }, [language]);
+  }, [defaultWhereLabel]);
+
+  const routeParamKey = JSON.stringify(route.params ?? {});
+  const lastAppliedRouteParamKeyRef = React.useRef('');
+
+  React.useEffect(() => {
+    const params = route.params;
+    if (!params || routeParamKey === lastAppliedRouteParamKeyRef.current) {
+      return undefined;
+    }
+
+    lastAppliedRouteParamKeyRef.current = routeParamKey;
+
+    if (typeof params.query === 'string') {
+      setSearchQuery(params.query);
+    }
+
+    if (typeof params.where === 'string') {
+      setWhereQuery(params.where);
+    }
+
+    if (isExploreCategoryId(params.chipId)) {
+      setSelectedChipId(params.chipId);
+    }
+
+    setSelectedCardId(null);
+    setAppliedMapRegion(null);
+
+    if (!params.focusSearch) {
+      return undefined;
+    }
+
+    const focusTimer = setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 80);
+
+    return () => clearTimeout(focusTimer);
+  }, [route.params, routeParamKey]);
+
+  const handleDataIssue = React.useCallback(
+    (error: unknown, fallbackMessage: string) => {
+      setDataIssue(
+        isDataAccessBlockedError(error)
+          ? getBlockedDataMessage(language === 'ar' ? 'بيانات الاستكشاف' : 'Explore data')
+          : getErrorMessage(error, fallbackMessage)
+      );
+    },
+    [language]
+  );
+
+  React.useEffect(() => {
+    setLoading(true);
+    setDataIssue(null);
+
+    const unsubPosts = subscribeToPosts(
+      nextPosts => {
+        setPosts(nextPosts);
+        setLoading(false);
+      },
+      error => {
+        handleDataIssue(error, 'Failed to load Explore posts.');
+        setLoading(false);
+      }
+    );
+
+    const unsubEvents = subscribeToEvents(
+      nextEvents => {
+        setEvents(nextEvents);
+      },
+      error => {
+        handleDataIssue(error, 'Failed to load Explore events.');
+      }
+    );
+
+    return () => {
+      unsubPosts();
+      unsubEvents();
+    };
+  }, [handleDataIssue, refreshToken]);
+
+  React.useEffect(() => {
+    return observeFavoritePostIds(
+      user?.id,
+      ids => setFavoritePostIds(ids),
+      error => handleDataIssue(error, 'Failed to load saved spots.')
+    );
+  }, [handleDataIssue, refreshToken, user?.id]);
+
+  React.useEffect(() => {
+    return observeCommentCountsByPost(
+      counts => setCommentCountsByPostId(counts),
+      error => handleDataIssue(error, 'Failed to load comments.')
+    );
+  }, [handleDataIssue, refreshToken]);
+
+  React.useEffect(() => {
+    return observeLikeCountsByPost(
+      counts => setLikeCountsByPostId(counts),
+      error => handleDataIssue(error, 'Failed to load likes.')
+    );
+  }, [handleDataIssue, refreshToken]);
 
   const filteredPosts = React.useMemo(
-    () => filterExplorePosts(posts, activeChipConfig.mapCategory, whatQuery),
-    [activeChipConfig.mapCategory, posts, whatQuery]
+    () => filterExplorePosts(posts, activeChip.id, whatQuery),
+    [activeChip.id, posts, whatQuery]
   );
 
   const filteredEvents = React.useMemo(
-    () => filterExploreEvents(events, activeChipConfig.mapCategory, whatQuery),
-    [activeChipConfig.mapCategory, events, whatQuery]
+    () => filterExploreEvents(events, activeChip.id, whatQuery),
+    [activeChip.id, events, whatQuery]
   );
 
   const discoverySpotItems = React.useMemo(
@@ -673,12 +528,14 @@ export function ExploreScreen() {
         favoritePostIds,
         browserLocation,
         searchQuery: whatQuery,
+        language,
       }),
     [
       browserLocation,
       commentCountsByPostId,
       favoritePostIds,
       filteredPosts,
+      language,
       likeCountsByPostId,
       whatQuery,
     ]
@@ -690,158 +547,311 @@ export function ExploreScreen() {
         posts: filteredPosts,
         browserLocation,
         searchQuery: whatQuery,
+        language,
       }),
-    [browserLocation, filteredEvents, filteredPosts, whatQuery]
+    [browserLocation, filteredEvents, filteredPosts, language, whatQuery]
   );
 
-  const chipFilteredSpotItems = React.useMemo(() => {
-    if (!activeChipConfig.keywords || activeChipConfig.keywords.length === 0) {
-      return discoverySpotItems;
-    }
-
-    return discoverySpotItems.filter(item => {
-      const haystack = normalize(
-        `${item.title} ${item.categoryLabel} ${item.areaLabel} ${item.locationLabel} ${item.summary} ${item.description}`
-      );
-      return textContainsAny(haystack, activeChipConfig.keywords ?? []);
-    });
-  }, [activeChipConfig.keywords, discoverySpotItems]);
-
-  const chipFilteredEventItems = React.useMemo(() => {
-    if (!activeChipConfig.keywords || activeChipConfig.keywords.length === 0) {
-      return discoveryEventItems;
-    }
-
-    return discoveryEventItems.filter(item => {
-      const haystack = normalize(
-        `${item.title} ${item.categoryLabel} ${item.areaLabel} ${item.venueLabel} ${item.description} ${item.summary}`
-      );
-      return textContainsAny(haystack, activeChipConfig.keywords ?? []);
-    });
-  }, [activeChipConfig.keywords, discoveryEventItems]);
-
-  const dynamicCards = React.useMemo<ExploreResultCard[]>(() => {
-    const spots = chipFilteredSpotItems.map((item, index) => {
-      const engagement = Math.max(item.commentCount + item.likeCount, 64);
-      const ratingValue = (4.4 + Math.min(0.5, engagement * 0.002)).toFixed(1);
-      const hasPromotedSignal = item.trustSignals.some(signal => signal.id === 'promoted');
-
-      return {
-        id: `spot-${item.postId}`,
-        kind: 'spot' as const,
-        title: item.title,
-        subtitle: `${item.locationLabel} • ${item.areaLabel}`,
-        description: item.summary || item.description,
-        timeLabel: getSpotTimeLabel(index, language),
-        distanceLabel: item.distanceLabel,
-        imageUrl: item.hero.imageUrl || '',
-        signal: hasPromotedSignal ? ('promoted' as const) : undefined,
-        ratingLabel: `${ratingValue} (${engagement})`,
-        saved: item.saved,
-        postId: item.postId,
-        latitude: item.rawPost.lat,
-        longitude: item.rawPost.lng,
-        sourceSpot: item,
-      };
-    });
-
-    const eventsAsCards = chipFilteredEventItems.map(item => ({
-      id: `event-${item.eventId}`,
-      kind: 'event' as const,
-      title: item.title,
-      subtitle: `${item.venueLabel} • ${item.areaLabel}`,
-      description: item.summary || item.description,
-      timeLabel: formatEventTime(item.rawEvent.startTime, language),
-      distanceLabel: item.distanceLabel,
-      imageUrl: item.hero.imageUrl || '',
-      signal: item.rawEvent.isPromoted ? ('promoted' as const) : undefined,
-      ratingLabel: undefined,
-      saved: false,
-      latitude: item.rawEvent.lat,
-      longitude: item.rawEvent.lng,
+  const cards = React.useMemo<ExploreCard[]>(() => {
+    const spotCards: ExploreCard[] = discoverySpotItems.map(spot => ({
+      id: `spot-${spot.postId}`,
+      kind: 'spot',
+      title: spot.title,
+      subtitle: `${spot.locationLabel} • ${spot.areaLabel}`,
+      description: spot.summary || spot.description,
+      timeLabel: formatSpotTime(spot.rawPost.createdAt, language),
+      distanceLabel: spot.distanceLabel,
+      imageUrl: getCardImage(spot.hero.imageUrl),
+      signal: spot.trustSignals.some(signal => signal.id === 'popular-now')
+        ? 'trending'
+        : undefined,
+      ratingLabel: getSpotRatingLabel(spot),
+      saved: spot.saved,
+      postId: spot.postId,
+      latitude: spot.rawPost.lat,
+      longitude: spot.rawPost.lng,
+      rankingScore: spot.rankingScore,
+      createdAt: spot.rawPost.createdAt,
+      rawPost: spot.rawPost,
     }));
 
-    return [...spots, ...eventsAsCards];
-  }, [chipFilteredEventItems, chipFilteredSpotItems, language]);
+    const eventCards: ExploreCard[] = discoveryEventItems.map(event => ({
+      id: `event-${event.eventId}`,
+      kind: 'event',
+      title: event.title,
+      subtitle: `${event.venueLabel} • ${event.areaLabel}`,
+      description: event.summary || event.description,
+      timeLabel: formatEventTime(event.rawEvent.startTime, language),
+      distanceLabel: event.distanceLabel,
+      imageUrl: getCardImage(event.hero.imageUrl),
+      signal: event.rawEvent.isPromoted ? 'promoted' : undefined,
+      saved: false,
+      latitude: event.rawEvent.lat,
+      longitude: event.rawEvent.lng,
+      rankingScore: event.rankingScore,
+      createdAt: event.rawEvent.startTime,
+      rawEvent: event.rawEvent,
+    }));
 
-  const allowFallback = whatQuery.trim().length === 0;
+    const rankedCards = [...spotCards, ...eventCards]
+      .filter(hasValidCoordinate)
+      .sort((a, b) => b.rankingScore - a.rankingScore);
 
-  const mergedCards = React.useMemo(() => {
-    if (!allowFallback) {
-      return dynamicCards;
-    }
-
-    const existingTitles = new Set(dynamicCards.map(item => normalize(item.title)));
-    const extraFallback = FALLBACK_RESULTS.filter(item => !existingTitles.has(normalize(item.title)));
-
-    return [...dynamicCards, ...extraFallback];
-  }, [allowFallback, dynamicCards]);
-
-  const sortedCards = React.useMemo(
-    () =>
-      [...mergedCards].sort((left, right) => {
-        const leftRank = getResultRank(left.title);
-        const rightRank = getResultRank(right.title);
-
-        if (leftRank !== rightRank) {
-          return leftRank - rightRank;
+    return rankedCards
+      .filter(card => {
+        if (!activeWhereQuery) {
+          return true;
         }
 
-        return left.title.localeCompare(right.title);
-      }),
-    [mergedCards]
+        return normalize(`${card.title} ${card.subtitle} ${card.description}`).includes(
+          activeWhereQuery
+        );
+      })
+      .filter(card => {
+        if (!appliedMapRegion) {
+          return true;
+        }
+
+        return isCardInsideRegion(card, appliedMapRegion);
+      })
+      .slice(0, 8);
+  }, [activeWhereQuery, appliedMapRegion, discoveryEventItems, discoverySpotItems, language]);
+
+  const mapCards = React.useMemo(() => cards, [cards]);
+  const visiblePosts = React.useMemo(
+    () => mapCards.flatMap(card => (card.rawPost ? [card.rawPost] : [])),
+    [mapCards]
+  );
+  const visibleEvents = React.useMemo(
+    () => mapCards.flatMap(card => (card.rawEvent ? [card.rawEvent] : [])),
+    [mapCards]
+  );
+  const selectedCard = React.useMemo(
+    () => cards.find(card => card.id === selectedCardId) ?? null,
+    [cards, selectedCardId]
+  );
+  const selectedResult = React.useMemo(() => {
+    if (!selectedCard) {
+      return null;
+    }
+
+    return selectedCard.rawPost
+      ? { kind: 'post' as const, id: selectedCard.rawPost.id }
+      : selectedCard.rawEvent
+        ? { kind: 'event' as const, id: selectedCard.rawEvent.id }
+        : null;
+  }, [selectedCard]);
+  const heatPoints = React.useMemo(
+    () => buildNativeHeatPoints(visiblePosts, visibleEvents),
+    [visibleEvents, visiblePosts]
+  );
+  const interactionUserLabel = user?.displayInfo || user?.email || 'Spots user';
+
+  React.useEffect(() => {
+    const selectedPost =
+      selectedResult?.kind === 'post'
+        ? visiblePosts.find(post => post.id === selectedResult.id) ?? null
+        : null;
+
+    const selectedEvent =
+      selectedResult?.kind === 'event'
+        ? visibleEvents.find(event => event.id === selectedResult.id) ?? null
+        : null;
+
+    const selectedTarget = selectedPost ?? selectedEvent;
+
+    if (!selectedTarget || !mapRef.current) return;
+
+    const selectionKey = `${selectedResult?.kind}:${selectedTarget.id}`;
+    if (lastSelectionKeyRef.current === selectionKey) return;
+
+    lastSelectionKeyRef.current = selectionKey;
+
+    const nextRegion = makeNativeSelectionRegion(
+      selectedTarget.lat,
+      selectedTarget.lng,
+      region
+    );
+
+    mapRef.current.animateToRegion(nextRegion, 350);
+    setRegion(nextRegion);
+  }, [region, selectedResult, visibleEvents, visiblePosts]);
+
+  React.useEffect(() => {
+    if (selectedCardId && !cards.some(card => card.id === selectedCardId)) {
+      setSelectedCardId(null);
+    }
+  }, [cards, selectedCardId]);
+
+  const handleRetry = React.useCallback(() => {
+    setRefreshToken(value => value + 1);
+    setDataIssue(null);
+  }, []);
+
+  const handleToggleSave = React.useCallback(
+    async (card: ExploreCard) => {
+      if (!card.postId) {
+        return;
+      }
+
+      setSavingCardId(card.id);
+
+      try {
+        await toggleFavoritePost({
+          userId: user?.id,
+          postId: card.postId,
+          isCurrentlyFavorite: card.saved,
+        });
+      } catch (error) {
+        if (error instanceof FavoriteValidationError) {
+          showAlert(
+            language === 'ar' ? 'تعذر الحفظ' : 'Could not save',
+            error.message
+          );
+        } else {
+          showAlert(
+            language === 'ar' ? 'تعذر الحفظ' : 'Could not save',
+            isDataAccessBlockedError(error)
+              ? getBlockedDataMessage(language === 'ar' ? 'المحفوظات' : 'saved spots')
+              : getErrorMessage(error, 'Unable to update saved state right now.')
+          );
+        }
+      } finally {
+        setSavingCardId(null);
+      }
+    },
+    [language, user?.id]
   );
 
-  const visibleCards = React.useMemo(() => sortedCards.slice(0, 4), [sortedCards]);
+  const handleSelectCard = React.useCallback((card: ExploreCard) => {
+    setSelectedCardId(card.id);
+    const nextRegion = makeNativeSelectionRegion(
+      card.latitude,
+      card.longitude,
+      {
+        ...region,
+        latitudeDelta: Math.min(region.latitudeDelta, 0.08),
+        longitudeDelta: Math.min(region.longitudeDelta, 0.08),
+      }
+    );
+    setRegion(nextRegion);
+    mapRef.current?.animateToRegion(nextRegion, 320);
+  }, [region]);
 
-  const totalVisible = dynamicCards.length;
-  const resultCountForHero = totalVisible === 0 ? 0 : whatQuery.trim().length === 0 ? Math.max(totalVisible, 998) : totalVisible;
+  const handleSelectPost = React.useCallback(
+    (post: SpotPost) => {
+      const card = cards.find(item => item.rawPost?.id === post.id);
 
-  const mapMarkers = React.useMemo(
-    () =>
-      visibleCards.map((card, index) => ({
-        id: `marker-${card.id}-${index}`,
-        latitude: card.latitude,
-        longitude: card.longitude,
-      })),
-    [visibleCards]
+      if (card) {
+        handleSelectCard(card);
+        return;
+      }
+
+      setSelectedCardId(`spot-${post.id}`);
+      const nextRegion = makeNativeSelectionRegion(post.lat, post.lng, region);
+      setRegion(nextRegion);
+      mapRef.current?.animateToRegion(nextRegion, 350);
+    },
+    [cards, handleSelectCard, region]
   );
 
-  const toggleSave = async (card: ExploreResultCard) => {
-    if (!card.postId) {
+  const handleSelectEvent = React.useCallback(
+    (event: PromotedEvent) => {
+      const card = cards.find(item => item.rawEvent?.id === event.id);
+
+      if (card) {
+        handleSelectCard(card);
+        return;
+      }
+
+      setSelectedCardId(`event-${event.id}`);
+      const nextRegion = makeNativeSelectionRegion(event.lat, event.lng, region);
+      setRegion(nextRegion);
+      mapRef.current?.animateToRegion(nextRegion, 350);
+    },
+    [cards, handleSelectCard, region]
+  );
+
+  const handleSelectChip = React.useCallback((chipId: ExploreChipId) => {
+    setSelectedChipId(chipId);
+    setSelectedCardId(null);
+    setAreaSummary(null);
+  }, []);
+
+  const handleSubmitSearch = React.useCallback(() => {
+    setSelectedCardId(null);
+    Keyboard.dismiss();
+  }, []);
+
+  const handleMapViewportChange = React.useCallback((bounds: NativeMapBounds) => {
+    latestMapBoundsRef.current = bounds;
+  }, []);
+
+  const handleNativeRegionChangeComplete = React.useCallback(
+    (nextRegion: Region) => {
+      setRegion(nextRegion);
+      handleMapViewportChange(nativeRegionToBounds(nextRegion));
+    },
+    [handleMapViewportChange]
+  );
+
+  const handleSearchThisArea = React.useCallback(() => {
+    setAppliedMapRegion(region);
+    setSelectedCardId(null);
+    setAreaSummary(null);
+    Keyboard.dismiss();
+  }, [region]);
+
+  const handleResetMap = React.useCallback(() => {
+    setRegion(DEFAULT_EXPLORE_REGION);
+    setAppliedMapRegion(null);
+    setSelectedCardId(null);
+    setAreaSummary(null);
+    mapRef.current?.animateToRegion(DEFAULT_EXPLORE_REGION, 320);
+  }, []);
+
+  const handleAreaSummary = React.useCallback(async () => {
+    const summarizable = cards
+      .filter(card => card.rawPost || card.rawEvent)
+      .slice(0, 20)
+      .map(card => ({
+        text: card.rawPost?.text ?? card.rawEvent?.description ?? card.description,
+        category: card.rawPost?.category ?? card.rawEvent?.category,
+      }))
+      .filter(item => item.text.trim().length > 0);
+
+    if (summarizable.length === 0) {
+      setAreaSummary(
+        language === 'ar'
+          ? 'لا توجد تحديثات كافية في هذا العرض لتلخيصها.'
+          : 'There are not enough visible updates to summarize yet.'
+      );
       return;
     }
 
-    setSavingCardId(card.id);
+    setSummaryLoading(true);
     try {
-      await toggleFavoritePost({
-        userId: user?.id,
-        postId: card.postId,
-        isCurrentlyFavorite: card.saved,
-      });
-    } catch (error: any) {
-      if (error instanceof FavoriteValidationError) {
-        showAlert(language === 'ar' ? 'تعذر الحفظ' : 'Could not save', error.message);
-      } else {
-        showAlert(
-          language === 'ar' ? 'تعذر الحفظ' : 'Could not save',
-          isDataAccessBlockedError(error)
-            ? getBlockedDataMessage('saved spots')
-            : getErrorMessage(error, 'Unable to update saved state right now.')
-        );
-      }
+      const nextSummary = await summarizeAreaPosts({ posts: summarizable });
+      setAreaSummary(nextSummary);
+    } catch (error) {
+      setAreaSummary(
+        getErrorMessage(
+          error,
+          language === 'ar'
+            ? 'تعذر إنشاء الملخص الآن.'
+            : 'Unable to generate an area summary right now.'
+        )
+      );
     } finally {
-      setSavingCardId(null);
+      setSummaryLoading(false);
     }
-  };
+  }, [cards, language]);
 
-  const focusCardOnMap = React.useCallback((card: ExploreResultCard) => {
-    setRegion(prev => ({
-      ...prev,
-      latitude: card.latitude,
-      longitude: card.longitude,
-    }));
-  }, []);
+  const resultsContextLabel = appliedMapRegion
+    ? language === 'ar'
+      ? 'هذه المنطقة'
+      : 'this area'
+    : whereQuery.trim() || defaultWhereLabel;
 
   if (loading) {
     return <LoadingState label={language === 'ar' ? 'استكشاف' : 'Explore'} />;
@@ -850,58 +860,164 @@ export function ExploreScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView
+        scrollEnabled={isScrollEnabled}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + spacing.sm,
-            paddingBottom: Math.max(insets.bottom, spacing.lg) + 84,
+            paddingTop: insets.top + 8,
+            paddingBottom: insets.bottom + 88,
           },
         ]}
       >
-        <View style={[styles.headerRow, { flexDirection: getRowDirection() }]}> 
-          <Text
-            style={[
-              styles.wordmark,
-              { writingDirection: isRTL ? 'rtl' : 'ltr' },
-            ]}
-          >
-            Spots
-          </Text>
+        <View style={[styles.topBar, { flexDirection: getRowDirection() }]}>
+          <Text style={styles.brandText}>Spots</Text>
 
-          <View style={[styles.headerActions, { flexDirection: getRowDirection() }]}> 
+          <View style={[styles.topActions, { flexDirection: getRowDirection() }]}>
             <Pressable
               accessibilityRole="button"
-              style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionPressed]}
+              onPress={() => navigation.navigate('Profile')}
+              style={({ pressed }) => [styles.topIconButton, pressed && styles.pressed]}
             >
               <BellGlyph />
             </Pressable>
 
             <Pressable
               accessibilityRole="button"
-              style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionPressed]}
+              onPress={() => navigation.navigate('Profile')}
+              style={({ pressed }) => [styles.topIconButton, pressed && styles.pressed]}
             >
-              <Text style={styles.heartGlyph}>♡</Text>
+              <Text style={styles.topIconGlyph}>♡</Text>
             </Pressable>
 
             <Pressable
               accessibilityRole="button"
-              style={({ pressed }) => [pressed && styles.headerActionPressed]}
+              onPress={() => navigation.navigate('Profile')}
+              style={({ pressed }) => [styles.avatarWrap, pressed && styles.pressed]}
             >
-              <View style={styles.avatarFrame}>
-                <Image source={{ uri: MOBILE_AVATAR_FALLBACK_URI }} style={styles.avatarImage} />
-                {!user ? <Text style={styles.avatarFallback}>{avatarInitial || 'S'}</Text> : null}
-              </View>
+              <Image source={{ uri: MOBILE_AVATAR_FALLBACK_URI }} style={styles.avatarImage} />
+              {!user ? <Text style={styles.avatarFallback}>{avatarInitial}</Text> : null}
             </Pressable>
           </View>
         </View>
+
+        <View style={styles.searchShell}>
+          <View style={[styles.searchFieldRow, { flexDirection: getRowDirection() }]}>
+            <View style={styles.searchFieldIconWrap}>
+              <SearchGlyph />
+            </View>
+            <View style={styles.searchFieldTextWrap}>
+              <Text
+                style={[
+                  styles.searchFieldLabel,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {language === 'ar' ? 'ماذا' : 'What'}
+              </Text>
+              <TextInput
+                ref={searchInputRef}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                onSubmitEditing={handleSubmitSearch}
+                clearButtonMode="while-editing"
+                returnKeyType="search"
+                placeholder={
+                  language === 'ar'
+                    ? 'قهوة، أماكن دراسة، فعاليات...'
+                    : 'Coffee, study spots, events...'
+                }
+                placeholderTextColor="#80756E"
+                style={[
+                  styles.searchFieldInput,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              />
+            </View>
+            <Text style={styles.searchChevron}>{isRTL ? '‹' : '›'}</Text>
+          </View>
+
+          <View style={styles.searchDivider} />
+
+          <View style={[styles.searchFieldRow, { flexDirection: getRowDirection() }]}>
+            <View style={styles.searchFieldIconWrap}>
+              <PinGlyph />
+            </View>
+            <View style={styles.searchFieldTextWrap}>
+              <Text
+                style={[
+                  styles.searchFieldLabel,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {language === 'ar' ? 'أين' : 'Where'}
+              </Text>
+              <TextInput
+                value={whereQuery}
+                onChangeText={setWhereQuery}
+                onSubmitEditing={handleSubmitSearch}
+                clearButtonMode="while-editing"
+                returnKeyType="search"
+                placeholder={defaultWhereLabel}
+                placeholderTextColor="#80756E"
+                style={[
+                  styles.searchFieldInput,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              />
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleSubmitSearch}
+              style={({ pressed }) => [
+                styles.searchActionButton,
+                isRTL && styles.searchActionButtonRtl,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.searchActionGlyph}>⌕</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.chipRow,
+            { flexDirection: getRowDirection() },
+          ]}
+        >
+          {CHIPS.map(chip => {
+            const active = chip.id === selectedChipId;
+            return (
+              <Pressable
+                key={chip.id}
+                onPress={() => handleSelectChip(chip.id)}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    active && styles.filterChipTextActive,
+                    { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                >
+                  {getCategoryOptionLabel(chip, language)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         {dataIssue ? (
           <StatusBanner
             compact
             tone="warning"
-            title={language === 'ar' ? 'بعض بيانات الاستكشاف غير متاحة' : 'Some Explore data is unavailable'}
-            body={language === 'ar' ? 'يمكنك المتابعة أو إعادة المحاولة.' : 'You can keep browsing or retry.'}
+            title={language === 'ar' ? 'بعض النتائج قد تكون ناقصة' : 'Some results may be missing.'}
+            body={dataIssue}
             actions={[
               {
                 label: language === 'ar' ? 'إعادة المحاولة' : 'Retry',
@@ -912,179 +1028,311 @@ export function ExploreScreen() {
           />
         ) : null}
 
-        <View style={styles.searchCard}>
-          <View style={styles.searchRowTop}>
-            <SearchGlyph />
-            <Text style={styles.searchFieldTitle}>{language === 'ar' ? 'ماذا' : 'What'}</Text>
-            <TextInput
-              value={whatQuery}
-              onChangeText={setWhatQuery}
-              placeholder={language === 'ar' ? 'قهوة، أماكن دراسة، فعاليات، ...' : 'Coffee, study spots, events, ...'}
-              placeholderTextColor={colors.textSubtle}
-              style={[
-                styles.searchInput,
-                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-              ]}
-            />
-            <Text style={styles.searchChevron}>{isRTL ? '‹' : '›'}</Text>
-          </View>
+        <View style={[styles.resultsMetaRow, { flexDirection: getRowDirection() }]}>
+          <Text
+            style={[
+              styles.resultsMetaText,
+              { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {language === 'ar'
+              ? `${cards.length} نتيجة في ${resultsContextLabel}`
+              : `${cards.length} results in ${resultsContextLabel}`}
+          </Text>
 
-          <View style={styles.searchDivider} />
+          <Text
+            style={[
+              styles.sortText,
+              { writingDirection: isRTL ? 'rtl' : 'ltr' },
+            ]}
+          >
+            {language === 'ar' ? 'الترتيب: الصلة' : 'Sort: Relevance'}
+          </Text>
+        </View>
 
-          <View style={styles.searchRowBottom}>
-            <PinGlyph />
-            <View style={styles.searchWhereCopy}>
-              <Text style={styles.searchFieldTitle}>{language === 'ar' ? 'أين' : 'Where'}</Text>
-              <TextInput
-                value={whereQuery}
-                onChangeText={setWhereQuery}
-                placeholder={language === 'ar' ? 'قطر' : 'Qatar'}
-                placeholderTextColor={colors.textSubtle}
+        <View style={styles.summaryCard}>
+          <View style={[styles.summaryHeader, { flexDirection: getRowDirection() }]}>
+            <View style={styles.summaryCopy}>
+              <Text
                 style={[
-                  styles.searchWhereInput,
-                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  styles.summaryTitle,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
                 ]}
-              />
+              >
+                {language === 'ar' ? 'ملخص العرض الحالي' : 'Current View Summary'}
+              </Text>
+              <Text
+                style={[
+                  styles.summaryBody,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {areaSummary ||
+                  (language === 'ar'
+                    ? 'أنشئ ملخصًا حقيقيًا من النتائج الظاهرة على الخريطة والقائمة.'
+                    : 'Generate a real summary from the posts and events currently visible in the map and list.')}
+              </Text>
             </View>
-
             <Pressable
               accessibilityRole="button"
-              style={({ pressed }) => [styles.searchActionButton, pressed && styles.searchActionPressed]}
+              disabled={summaryLoading}
+              onPress={() => void handleAreaSummary()}
+              style={({ pressed }) => [
+                styles.summaryButton,
+                summaryLoading && styles.summaryButtonDisabled,
+                pressed && !summaryLoading && styles.pressed,
+              ]}
             >
-              <SearchGlyph color={colors.surface} />
+              {summaryLoading ? (
+                <ActivityIndicator color={colors.surface} />
+              ) : (
+                <Text style={styles.summaryButtonText}>
+                  {language === 'ar' ? 'لخّص' : 'Summarize'}
+                </Text>
+              )}
             </Pressable>
           </View>
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chipRail}
-          contentContainerStyle={[styles.chipRailContent, { flexDirection: getRowDirection() }]}
-        >
-          {CHIPS.map(chip => {
-            const active = chip.id === activeChip;
-
-            return (
-              <Pressable
-                key={chip.id}
-                accessibilityRole="button"
-                onPress={() => setActiveChip(chip.id)}
-                style={({ pressed }) => [
-                  styles.chip,
-                  active && styles.chipActive,
-                  pressed && styles.chipPressed,
-                ]}
-              >
-                {chip.glyph ? (
-                  <Text style={[styles.chipGlyph, active && styles.chipGlyphActive]}>{chip.glyph}</Text>
-                ) : null}
-                <Text
-                  style={[
-                    styles.chipLabel,
-                    active && styles.chipLabelActive,
-                    { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                  ]}
-                >
-                  {chipLabel(chip)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        <View style={[styles.resultsHeader, { flexDirection: getRowDirection() }]}> 
-          <Text
-            style={[
-              styles.resultsHeadline,
-              { writingDirection: isRTL ? 'rtl' : 'ltr' },
-            ]}
-          >
-            {language === 'ar'
-              ? `${resultCountForHero} نتيجة في ${whereQuery || 'قطر'}`
-              : `${resultCountForHero} results in ${whereQuery || 'Qatar'}`}
-          </Text>
-
-          <Pressable accessibilityRole="button" style={({ pressed }) => [pressed && styles.headerActionPressed]}>
-            <Text style={styles.sortText}>
-              {language === 'ar' ? 'الترتيب: الصلة' : 'Sort: Relevance'} {isRTL ? '˅' : '⌄'}
-            </Text>
-          </Pressable>
-        </View>
-
-        {visibleCards.length === 0 ? (
+        {cards.length === 0 ? (
           <EmptyState
-            title={language === 'ar' ? 'لا توجد نتائج حالياً' : 'No results right now'}
-            subtitle={
+            title={language === 'ar' ? 'لا توجد نتائج' : 'No results'}
+            body={
               language === 'ar'
-                ? 'جرّب بحثًا مختلفًا أو غير الفلتر.'
-                : 'Try a different search or switch filters.'
+                ? 'جرّب فئة أخرى أو ابحث في منطقة مختلفة.'
+                : 'Try another filter or search in a different area.'
             }
           />
         ) : (
-          <View style={styles.resultsList}>
-            {visibleCards.map((card, index) => (
-              <ExploreResultRow
-                key={card.id}
-                card={card}
-                index={index}
-                isRTL={isRTL}
-                textAlign={getTextAlign()}
-                language={language}
-                saveLoading={savingCardId === card.id}
-                onToggleSave={() => {
-                  void toggleSave(card);
-                }}
-                onPress={() => focusCardOnMap(card)}
-              />
-            ))}
-          </View>
+          cards.map(card => {
+            const selected = selectedCardId === card.id;
+            return (
+              <View key={card.id} style={styles.resultWrap}>
+                <Pressable
+                  onPress={() => handleSelectCard(card)}
+                  style={[
+                    styles.resultCard,
+                    isRTL && styles.resultCardRtl,
+                    selected && styles.resultCardActive,
+                  ]}
+                >
+                  <Image
+                    source={{ uri: card.imageUrl }}
+                    style={[styles.resultImage, isRTL && styles.resultImageRtl]}
+                  />
+
+                  <View style={styles.resultContent}>
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        styles.resultTitle,
+                        { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                      ]}
+                    >
+                      {card.title}
+                    </Text>
+
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.resultSubtitle,
+                        { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                      ]}
+                    >
+                      {card.subtitle}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.resultTime,
+                        { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                      ]}
+                    >
+                      {card.timeLabel}
+                    </Text>
+
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        styles.resultDescription,
+                        { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                      ]}
+                    >
+                      {card.description}
+                    </Text>
+
+                    <View style={[styles.resultFooter, { flexDirection: getRowDirection() }]}>
+                      {card.signal ? (
+                        <View
+                          style={[
+                            styles.resultBadge,
+                            card.signal === 'promoted'
+                              ? styles.resultBadgePromoted
+                              : styles.resultBadgeTrending,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.resultBadgeText,
+                              card.signal === 'promoted'
+                                ? styles.resultBadgeTextPromoted
+                                : styles.resultBadgeTextTrending,
+                            ]}
+                          >
+                            {card.signal === 'promoted'
+                              ? language === 'ar'
+                                ? 'مميز'
+                                : 'Promoted'
+                              : language === 'ar'
+                                ? 'رائج'
+                                : 'Trending'}
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {card.ratingLabel ? (
+                        <Text style={styles.resultMetaInline}>{card.ratingLabel}</Text>
+                      ) : null}
+
+                      <Text style={styles.resultMetaInline}>{card.distanceLabel}</Text>
+                    </View>
+                  </View>
+
+                  <Pressable
+                    onPress={() => void handleToggleSave(card)}
+                    style={({ pressed }) => [
+                      styles.saveButton,
+                      isRTL && styles.saveButtonRtl,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.saveGlyph}>
+                      {savingCardId === card.id
+                        ? '…'
+                        : card.saved
+                          ? '🔖'
+                          : '⌑'}
+                    </Text>
+                  </Pressable>
+                </Pressable>
+                {selected && card.rawPost ? (
+                  <View style={styles.interactionPanelWrap}>
+                    <PostInteractionPanel
+                      post={card.rawPost}
+                      currentUserId={user?.id}
+                      currentUserLabel={interactionUserLabel}
+                      compact
+                    />
+                  </View>
+                ) : null}
+              </View>
+            );
+          })
         )}
 
         <View style={styles.mapCard}>
           <MapView
-            style={StyleSheet.absoluteFillObject}
-            region={region}
-            onRegionChangeComplete={setRegion}
-            showsCompass={false}
+            ref={mapRef}
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+            style={styles.map}
+            initialRegion={region}
+            onRegionChangeComplete={handleNativeRegionChangeComplete}
+            onTouchStart={() => setIsScrollEnabled(false)}
+            onTouchEnd={() => setIsScrollEnabled(true)}
+            onTouchCancel={() => setIsScrollEnabled(true)}
+            showsCompass
+            showsScale={false}
+            showsUserLocation={false}
+            scrollEnabled
+            zoomEnabled
+            zoomTapEnabled
             rotateEnabled={false}
-            pitchEnabled={false}
             toolbarEnabled={false}
           >
-            {mapMarkers.map(marker => (
-              <Marker
-                key={marker.id}
-                coordinate={{ latitude: marker.latitude, longitude: marker.longitude }}
-                pinColor={colors.primary}
+            {heatPoints.length > 0 ? (
+              <Heatmap
+                points={heatPoints}
+                radius={44}
+                opacity={0.72}
+                gradient={{
+                  colors: ['#5E6BFF', '#52D5FF', '#67F06B', '#F0F36A', '#FFAA5C', '#FF5E5E'],
+                  startPoints: [0.12, 0.28, 0.42, 0.6, 0.8, 1.0],
+                  colorMapSize: 256,
+                }}
               />
-            ))}
+            ) : null}
+
+            {browserLocation ? (
+              <Marker
+                coordinate={{
+                  latitude: browserLocation.latitude,
+                  longitude: browserLocation.longitude,
+                }}
+                title={t('explore.yourLocation')}
+                pinColor={colors.info}
+              />
+            ) : null}
+
+            {visiblePosts.map(post => {
+              const isSelected =
+                selectedResult?.kind === 'post' && selectedResult.id === post.id;
+
+              return (
+                <Marker
+                  key={`post-${post.id}`}
+                  coordinate={{ latitude: post.lat, longitude: post.lng }}
+                  title={post.locationName || post.text}
+                  description={post.text}
+                  pinColor={isSelected ? '#FF4F9A' : '#D946EF'}
+                  onPress={() => handleSelectPost(post)}
+                />
+              );
+            })}
+
+            {visibleEvents
+              .filter(event => event.status === 'active')
+              .map(event => {
+                const isSelected =
+                  selectedResult?.kind === 'event' && selectedResult.id === event.id;
+
+                return (
+                  <Marker
+                    key={`event-${event.id}`}
+                    coordinate={{ latitude: event.lat, longitude: event.lng }}
+                    title={event.title}
+                    description={event.description}
+                    pinColor={isSelected ? '#FF7A4E' : '#F97316'}
+                    onPress={() => handleSelectEvent(event)}
+                  />
+                );
+              })}
           </MapView>
 
-          <Pressable style={styles.mapLocateButton}>
-            <Text style={styles.mapLocateGlyph}>⌖</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={handleResetMap}
+            style={({ pressed }) => [
+              styles.mapFloatButton,
+              isRTL && styles.mapFloatButtonRtl,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.mapFloatGlyph}>⌖</Text>
           </Pressable>
 
-          <Pressable style={styles.mapSearchAreaButton}>
-            <Text style={styles.mapSearchAreaGlyph}>◎</Text>
-            <Text style={styles.mapSearchAreaText}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={handleSearchThisArea}
+            style={({ pressed }) => [
+              styles.mapSearchButton,
+              isRTL && styles.mapSearchButtonRtl,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.mapSearchButtonText}>
               {language === 'ar' ? 'ابحث في هذه المنطقة' : 'Search this area'}
             </Text>
           </Pressable>
-
-          {MAP_CLUSTER_OVERLAYS.map(cluster => (
-            <View
-              key={cluster.id}
-              style={[
-                styles.clusterBubble,
-                {
-                  top: cluster.top,
-                  left: cluster.left,
-                },
-              ]}
-            >
-              <Text style={styles.clusterBubbleText}>{cluster.label}</Text>
-            </View>
-          ))}
         </View>
       </ScrollView>
     </View>
@@ -1094,52 +1342,46 @@ export function ExploreScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F4F4F4',
+    backgroundColor: '#FAF7F2',
   },
   content: {
-    paddingHorizontal: spacing.md,
-    gap: spacing.md,
+    paddingHorizontal: 0,
   },
-  headerRow: {
+
+  topBar: {
     alignItems: 'center',
     justifyContent: 'space-between',
-    minHeight: 52,
+    paddingHorizontal: 20,
+    paddingBottom: 14,
   },
-  wordmark: {
-    ...typography.title,
-    color: colors.primary,
-    fontSize: 24,
-    lineHeight: 30,
-    letterSpacing: -0.45,
+  brandText: {
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '800',
+    color: '#F45A4E',
+    letterSpacing: -0.6,
   },
-  headerActions: {
+  topActions: {
     alignItems: 'center',
-    gap: spacing.sm + 4,
+    gap: 14,
   },
-  headerActionButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  topIconButton: {
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerActionPressed: {
-    opacity: 0.82,
+  topIconGlyph: {
+    fontSize: 22,
+    lineHeight: 24,
+    color: '#433B36',
   },
-  heartGlyph: {
-    ...typography.title,
-    color: colors.textMuted,
-    fontSize: 24,
-    lineHeight: 28,
-  },
-  avatarFrame: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#D8D8D8',
+  avatarWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#F2F2F2',
+    backgroundColor: '#EFE8E0',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1148,182 +1390,131 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   avatarFallback: {
-    ...typography.button,
-    color: colors.textMuted,
     position: 'absolute',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E241F',
   },
-  bellIcon: {
-    width: 18,
-    height: 18,
+
+  searchShell: {
+    marginHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#ECE6DE',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    shadowColor: '#20150E',
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  searchFieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 58,
+  },
+  searchFieldIconWrap: {
+    width: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
-  bellStem: {
-    position: 'absolute',
-    top: 1,
-    width: 5,
-    height: 2,
-    borderRadius: 2,
-    backgroundColor: colors.textMuted,
+  searchFieldTextWrap: {
+    flex: 1,
+    gap: 2,
   },
-  bellBody: {
-    position: 'absolute',
-    top: 3,
-    width: 11,
-    height: 10,
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
-    borderBottomLeftRadius: 4,
-    borderBottomRightRadius: 4,
-    borderWidth: 1.3,
-    borderColor: colors.textMuted,
-    backgroundColor: '#F8F8F8',
-  },
-  bellClapper: {
-    position: 'absolute',
-    bottom: 2,
-    width: 4,
-    height: 4,
-    borderRadius: 4,
-    backgroundColor: colors.textMuted,
-  },
-  bellBase: {
-    position: 'absolute',
-    bottom: 1,
-    width: 10,
-    height: 1.5,
-    borderRadius: 2,
-    backgroundColor: colors.textMuted,
-  },
-  bellDot: {
-    position: 'absolute',
-    top: 0,
-    right: 1,
-    width: 6,
-    height: 6,
-    borderRadius: 6,
-    backgroundColor: colors.primary,
-  },
-  searchCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    backgroundColor: '#F9F9F9',
-    paddingHorizontal: spacing.sm + 4,
-    paddingVertical: spacing.sm + 2,
-    shadowColor: '#1D1D1D',
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
-  },
-  searchRowTop: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm + 2,
-  },
-  searchRowBottom: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm + 2,
-  },
-  searchFieldTitle: {
-    ...typography.button,
-    color: '#2C2927',
+  searchFieldLabel: {
     fontSize: 16,
     lineHeight: 20,
-    minWidth: 52,
+    fontWeight: '700',
+    color: '#2A211D',
   },
-  searchInput: {
-    flex: 1,
-    minWidth: 0,
-    ...typography.caption,
-    color: colors.text,
-    fontSize: 13,
-    lineHeight: 18,
+  searchFieldInput: {
+    fontSize: 15,
+    lineHeight: 20,
+    color: '#80756E',
+    minHeight: 24,
+    paddingHorizontal: 0,
     paddingVertical: 0,
   },
   searchChevron: {
-    ...typography.title,
-    color: '#B4AEA9',
     fontSize: 26,
     lineHeight: 26,
-    paddingHorizontal: spacing.xs,
+    color: '#B2A79F',
+    marginLeft: 8,
   },
   searchDivider: {
     height: 1,
-    backgroundColor: '#E5E1DC',
-  },
-  searchWhereCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 0,
-  },
-  searchWhereInput: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    paddingVertical: 0,
+    backgroundColor: '#EEE7E0',
+    marginHorizontal: 2,
   },
   searchActionButton: {
-    width: 52,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
+    width: 64,
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: '#F45A4E',
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 12,
   },
-  searchActionPressed: {
-    opacity: 0.9,
+  searchActionButtonRtl: {
+    marginLeft: 0,
+    marginRight: 12,
   },
+  searchActionGlyph: {
+    fontSize: 24,
+    lineHeight: 24,
+    color: '#FFFFFF',
+  },
+
   searchGlyph: {
-    width: 18,
-    height: 18,
+    width: 22,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
   searchGlyphCircle: {
     position: 'absolute',
+    width: 14,
+    height: 14,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#F45A4E',
     top: 1,
     left: 1,
-    width: 11,
-    height: 11,
-    borderRadius: 11,
-    borderWidth: 1.5,
   },
   searchGlyphHandle: {
     position: 'absolute',
-    right: 1,
-    bottom: 3,
-    width: 7,
-    height: 1.5,
+    width: 9,
+    height: 2.5,
+    backgroundColor: '#F45A4E',
     borderRadius: 2,
     transform: [{ rotate: '45deg' }],
+    right: 0,
+    bottom: 2,
   },
+
   pinGlyph: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 24,
     alignItems: 'center',
   },
   pinGlyphHead: {
-    width: 11,
-    height: 11,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
+    width: 16,
+    height: 16,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#F45A4E',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: '#FFFFFF',
   },
   pinGlyphCore: {
-    width: 3,
-    height: 3,
-    borderRadius: 3,
-    backgroundColor: colors.primary,
+    width: 4,
+    height: 4,
+    borderRadius: 4,
+    backgroundColor: '#F45A4E',
   },
   pinGlyphTip: {
     marginTop: -1,
@@ -1331,370 +1522,351 @@ const styles = StyleSheet.create({
     height: 0,
     borderLeftWidth: 4,
     borderRightWidth: 4,
-    borderTopWidth: 6,
+    borderTopWidth: 7,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: colors.primary,
+    borderTopColor: '#F45A4E',
   },
-  chipRail: {
-    marginTop: spacing.xs,
+
+  chipRow: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 8,
+    gap: 10,
   },
-  chipRailContent: {
-    gap: spacing.xs,
-    paddingRight: spacing.sm,
-  },
-  chip: {
-    minHeight: 40,
-    borderRadius: radius.pill,
+  filterChip: {
+    minHeight: 42,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#DDDDDD',
-    backgroundColor: '#F8F8F8',
-    paddingHorizontal: spacing.md,
+    borderColor: '#E8E2DB',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
-    gap: spacing.xs,
   },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  filterChipActive: {
+    backgroundColor: '#F45A4E',
+    borderColor: '#F45A4E',
   },
-  chipPressed: {
-    opacity: 0.86,
-  },
-  chipGlyph: {
-    ...typography.caption,
-    color: '#595450',
-    fontSize: 13,
-    lineHeight: 16,
-  },
-  chipGlyphActive: {
-    color: colors.surface,
-  },
-  chipLabel: {
-    ...typography.caption,
-    color: '#47413E',
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '500',
-  },
-  chipLabelActive: {
-    color: colors.surface,
+  filterChipText: {
+    fontSize: 15,
+    lineHeight: 18,
     fontWeight: '600',
+    color: '#564C47',
   },
-  resultsHeader: {
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+
+  resultsMetaRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: spacing.xs,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
-  resultsHeadline: {
-    ...typography.sectionTitle,
-    color: colors.text,
-    fontSize: 32 / 1.7,
-    lineHeight: 24,
+  resultsMetaText: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: '#231B17',
   },
   sortText: {
-    ...typography.button,
-    color: colors.primary,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+    color: '#F45A4E',
+  },
+  summaryCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#ECE6DE',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#20150E',
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
+  },
+  summaryHeader: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  summaryCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
+    color: '#211915',
+  },
+  summaryBody: {
+    fontSize: 14,
+    lineHeight: 19,
+    color: '#6D625C',
+  },
+  summaryButton: {
+    minHeight: 42,
+    minWidth: 92,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F45A4E',
+    paddingHorizontal: 14,
+  },
+  summaryButtonDisabled: {
+    opacity: 0.72,
+  },
+  summaryButtonText: {
     fontSize: 14,
     lineHeight: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
-  resultsList: {
-    gap: spacing.sm,
+
+  resultWrap: {
+    marginBottom: 12,
   },
   resultCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    backgroundColor: '#FAFAFA',
-    padding: spacing.sm,
-    flexDirection: 'row',
-    gap: spacing.sm,
-    position: 'relative',
-  },
-  resultCardPressed: {
-    opacity: 0.9,
-  },
-  resultThumbWrap: {
-    width: 106,
-    borderRadius: 12,
-    overflow: 'hidden',
-    position: 'relative',
-    flexShrink: 0,
-  },
-  resultThumb: {
-    borderRadius: 12,
-  },
-  mediaBadge: {
-    position: 'absolute',
-    top: spacing.sm,
-    left: spacing.sm,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.94)',
-    borderWidth: 1,
-    borderColor: '#E6E6E6',
-  },
-  mediaBadgeText: {
-    ...typography.caption,
-    color: '#4E4A47',
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '600',
-  },
-  dateBadge: {
-    position: 'absolute',
-    top: spacing.sm,
-    left: spacing.sm,
-    width: 44,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E4E4E4',
-    backgroundColor: 'rgba(255, 255, 255, 0.96)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xs,
-    gap: 1,
-  },
-  dateBadgeMonth: {
-    ...typography.label,
-    color: colors.primary,
-    fontSize: 8,
-    lineHeight: 10,
-  },
-  dateBadgeDay: {
-    ...typography.title,
-    color: colors.text,
-    fontSize: 18,
-    lineHeight: 20,
-  },
-  resultBody: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-    paddingRight: 30,
-  },
-  resultTitle: {
-    ...typography.button,
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 19,
-  },
-  resultSubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  resultTime: {
-    ...typography.caption,
-    color: colors.success,
-    fontSize: 11,
-    lineHeight: 14,
-    marginTop: spacing.xs - 1,
-  },
-  resultDescription: {
-    ...typography.caption,
-    color: '#5D5650',
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  signalPill: {
-    marginTop: spacing.xs,
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#CFE3D6',
-    backgroundColor: '#EAF6EE',
-  },
-  signalPillPromoted: {
-    borderColor: '#CDE0F7',
-    backgroundColor: '#EAF2FF',
-  },
-  signalPillGlyph: {
-    ...typography.caption,
-    color: '#23794F',
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '700',
-  },
-  signalPillGlyphPromoted: {
-    color: '#2C6CCB',
-  },
-  signalPillText: {
-    ...typography.caption,
-    color: '#23794F',
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '600',
-  },
-  signalPillTextPromoted: {
-    color: '#2C6CCB',
-  },
-  resultRatingRow: {
-    marginTop: spacing.xs,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  resultStar: {
-    ...typography.caption,
-    color: colors.primary,
-    fontSize: 13,
-    lineHeight: 15,
-  },
-  resultRating: {
-    ...typography.caption,
-    color: '#554F49',
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  resultRatingDot: {
-    ...typography.caption,
-    color: '#958B81',
-    fontSize: 10,
-    lineHeight: 13,
-  },
-  resultSave: {
-    position: 'absolute',
-    top: spacing.md,
-    right: spacing.sm,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  resultSavePressed: {
-    opacity: 0.82,
-  },
-  resultSaveActive: {
-    backgroundColor: colors.primarySoft,
-  },
-  resultSaveLoading: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 10,
-    lineHeight: 12,
-  },
-  bookmarkGlyph: {
-    width: 14,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-  },
-  bookmarkGlyphActive: {
-    opacity: 1,
-  },
-  bookmarkGlyphBody: {
-    position: 'absolute',
-    top: 0,
-    width: 10,
-    height: 12,
-    borderWidth: 1.2,
-    borderColor: colors.textMuted,
-    borderBottomWidth: 0,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-    backgroundColor: 'transparent',
-  },
-  bookmarkGlyphFoldLeft: {
-    position: 'absolute',
-    bottom: 1,
-    left: 2,
-    width: 5,
-    height: 1.2,
-    borderRadius: 2,
-    backgroundColor: colors.textMuted,
-    transform: [{ rotate: '35deg' }],
-  },
-  bookmarkGlyphFoldRight: {
-    position: 'absolute',
-    bottom: 1,
-    right: 2,
-    width: 5,
-    height: 1.2,
-    borderRadius: 2,
-    backgroundColor: colors.textMuted,
-    transform: [{ rotate: '-35deg' }],
-  },
-  mapCard: {
-    marginTop: spacing.xs,
-    height: 208,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#DEDEDE',
-    overflow: 'hidden',
-    backgroundColor: '#E9EEF4',
-    position: 'relative',
-  },
-  mapLocateButton: {
-    position: 'absolute',
-    top: spacing.md,
-    right: spacing.md,
-    width: 40,
-    height: 40,
+    marginHorizontal: 16,
+    marginBottom: 0,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#D7DDE5',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mapLocateGlyph: {
-    ...typography.sectionTitle,
-    color: '#59677A',
-    fontSize: 18,
-    lineHeight: 20,
-  },
-  mapSearchAreaButton: {
-    position: 'absolute',
-    bottom: spacing.md,
-    left: spacing.md,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: '#D6DCE4',
-    backgroundColor: 'rgba(255, 255, 255, 0.96)',
-    minHeight: 40,
-    paddingHorizontal: spacing.md,
+    borderColor: '#ECE6DE',
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+    alignItems: 'flex-start',
+    shadowColor: '#20150E',
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
-  mapSearchAreaGlyph: {
-    ...typography.caption,
-    color: '#4B5666',
-    fontSize: 12,
-    lineHeight: 14,
+  resultCardRtl: {
+    flexDirection: 'row-reverse',
+  },
+  resultCardActive: {
+    borderColor: '#F0B2AA',
+  },
+  resultImage: {
+    width: 104,
+    height: 104,
+    borderRadius: 16,
+    marginRight: 12,
+    backgroundColor: '#EDE6DD',
+  },
+  resultImageRtl: {
+    marginRight: 0,
+    marginLeft: 12,
+  },
+  resultContent: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  resultTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '800',
+    color: '#211915',
+  },
+  resultSubtitle: {
+    marginTop: 4,
+    fontSize: 15,
+    lineHeight: 19,
+    color: '#716660',
+  },
+  resultTime: {
+    marginTop: 4,
+    fontSize: 15,
+    lineHeight: 19,
+    color: '#22A060',
+    fontWeight: '600',
+  },
+  resultDescription: {
+    marginTop: 4,
+    fontSize: 15,
+    lineHeight: 20,
+    color: '#6D625C',
+  },
+  resultFooter: {
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  resultBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  resultBadgeTrending: {
+    backgroundColor: '#E6F4E9',
+  },
+  resultBadgePromoted: {
+    backgroundColor: '#E8F0FA',
+  },
+  resultBadgeText: {
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: '700',
   },
-  mapSearchAreaText: {
-    ...typography.caption,
-    color: '#4B5666',
-    fontSize: 12,
-    lineHeight: 16,
+  resultBadgeTextTrending: {
+    color: '#2E9B57',
   },
-  clusterBubble: {
-    position: 'absolute',
+  resultBadgeTextPromoted: {
+    color: '#3A78C8',
+  },
+  resultMetaInline: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: '#6A605A',
+  },
+  saveButton: {
     width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.primary,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.85)',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 6,
+    marginLeft: 8,
+  },
+  saveButtonRtl: {
+    marginLeft: 0,
+    marginRight: 8,
+  },
+  saveGlyph: {
+    fontSize: 20,
+    lineHeight: 22,
+    color: '#5B514B',
+  },
+  interactionPanelWrap: {
+    marginHorizontal: 16,
+    marginTop: 8,
+  },
+
+  mapCard: {
+    marginHorizontal: 16,
+    marginTop: 6,
+    marginBottom: 22,
+    height: 268,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: '#DDEAF4',
+    position: 'relative',
+  },
+  map: {
+    width: '100%',
+    height: '100%',
+  },
+  mapFloatButton: {
+    position: 'absolute',
+    right: 14,
+    top: 14,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#20150E',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  mapFloatButtonRtl: {
+    right: undefined,
+    left: 14,
+  },
+  mapFloatGlyph: {
+    fontSize: 22,
+    lineHeight: 22,
+    color: '#5C534D',
+  },
+  mapSearchButton: {
+    position: 'absolute',
+    left: 14,
+    bottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    shadowColor: '#20150E',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  mapSearchButtonRtl: {
+    left: undefined,
+    right: 14,
+  },
+  mapSearchButtonText: {
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: '#433A35',
+  },
+
+  bellIcon: {
+    width: 18,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  clusterBubbleText: {
-    ...typography.button,
-    color: colors.surface,
-    fontSize: 14,
-    lineHeight: 18,
+  bellStem: {
+    position: 'absolute',
+    top: 1,
+    width: 5,
+    height: 2,
+    borderRadius: 2,
+    backgroundColor: '#6B625C',
+  },
+  bellBody: {
+    position: 'absolute',
+    top: 3,
+    width: 11,
+    height: 9,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
+    borderWidth: 1.35,
+    borderColor: '#6B625C',
+    backgroundColor: '#FFFFFF',
+  },
+  bellClapper: {
+    position: 'absolute',
+    bottom: 2,
+    width: 4,
+    height: 4,
+    borderRadius: 4,
+    backgroundColor: '#6B625C',
+  },
+  bellBase: {
+    position: 'absolute',
+    bottom: 1,
+    width: 10,
+    height: 1.5,
+    borderRadius: 2,
+    backgroundColor: '#6B625C',
+  },
+  bellDot: {
+    position: 'absolute',
+    top: 0,
+    right: 1,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#F45A4E',
+  },
+
+  pressed: {
+    opacity: 0.82,
   },
 });

@@ -1,23 +1,32 @@
-import React, { type ReactNode } from 'react';
-import { Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import React from 'react';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { colors, radius, shadows, spacing } from '../../theme/designSystem';
+import { colors, radius, spacing } from '../../theme/designSystem';
 
 type CardProps = {
-  children: ReactNode;
+  children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
+  compact?: boolean;
+  elevated?: boolean;
+  inset?: boolean;
   muted?: boolean;
 };
 
-export function Card({ children, style, muted = false }: CardProps) {
-  const isWeb = Platform.OS === 'web';
-
+export function Card({
+  children,
+  style,
+  compact = false,
+  elevated = false,
+  inset = false,
+  muted = false,
+}: CardProps) {
   return (
     <View
       style={[
-        styles.card,
-        isWeb && styles.cardWeb,
-        muted && styles.cardMuted,
+        styles.base,
+        compact && styles.compact,
+        elevated && styles.elevated,
+        (inset || muted) && styles.inset,
         style,
       ]}
     >
@@ -27,23 +36,31 @@ export function Card({ children, style, muted = false }: CardProps) {
 }
 
 const styles = StyleSheet.create({
-  card: {
+  base: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    borderWidth: 0.75,
+    borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.lg,
-    ...shadows.card,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
   },
-  cardWeb: {
-    borderRadius: radius.lg,
-    padding: spacing.md + 2,
-    shadowOpacity: 0.03,
+
+  compact: {
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+
+  elevated: {
+    shadowColor: '#20150E',
+    shadowOpacity: 0.05,
     shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  cardMuted: {
-    backgroundColor: colors.surfaceRaised,
-    borderColor: colors.border,
+
+  inset: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: '#EEE7E0',
   },
 });

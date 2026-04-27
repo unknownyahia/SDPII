@@ -1,67 +1,136 @@
 import React from 'react';
 import {
-  Platform,
   StyleSheet,
   Text,
   TextInput,
   View,
+  Platform,
+  type StyleProp,
+  type TextStyle,
   type TextInputProps,
+  type ViewStyle,
 } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../../theme/designSystem';
 import { useLocalization } from '../../context/LocalizationContext';
-import { webDesktopControl } from '../../theme/webDesktopSystem';
+import { colors, radius, spacing, typography } from '../../theme/designSystem';
 
 type TextFieldProps = TextInputProps & {
   label?: string;
   helperText?: string;
+  errorText?: string;
+  compact?: boolean;
+  leftAdornment?: React.ReactNode;
+  rightAdornment?: React.ReactNode;
+  containerStyle?: StyleProp<ViewStyle>;
+  inputStyle?: StyleProp<TextStyle>;
   webType?: string;
 };
 
 export function TextField({
   label,
+  value,
+  onChangeText,
+  placeholder,
   helperText,
+  errorText,
+  multiline = false,
+  numberOfLines,
+  keyboardType = 'default',
+  secureTextEntry = false,
+  editable = true,
+  compact = false,
+  leftAdornment,
+  rightAdornment,
+  containerStyle,
+  inputStyle,
   style,
   webType,
-  ...props
+  ...textInputProps
 }: TextFieldProps) {
-  const { getTextAlign, isRTL } = useLocalization();
-  const isWeb = Platform.OS === 'web';
+  const { getTextAlign, isRTL, getRowDirection } = useLocalization();
+  const hasError = Boolean(errorText);
   const webInputProps =
-    isWeb && webType
+    Platform.OS === 'web' && webType
       ? ({ type: webType } as unknown as TextInputProps)
       : undefined;
 
   return (
-    <View style={styles.wrapper}>
+    <View style={containerStyle}>
       {label ? (
         <Text
           style={[
             styles.label,
+            compact && styles.labelCompact,
             { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
           ]}
         >
           {label}
         </Text>
       ) : null}
-      <TextInput
-        {...webInputProps}
-        placeholderTextColor={colors.textSubtle}
+
+      <View
         style={[
-          styles.input,
-          isWeb && styles.inputWeb,
-          {
-            textAlign: getTextAlign(),
-            writingDirection: isRTL ? 'rtl' : 'ltr',
-          },
-          style,
+          styles.fieldShell,
+          compact && styles.fieldShellCompact,
+          hasError && styles.fieldShellError,
+          !editable && styles.fieldShellDisabled,
         ]}
-        {...props}
-      />
-      {helperText ? (
+      >
+        <View
+          style={[
+            styles.inputRow,
+            { flexDirection: getRowDirection() },
+            multiline && styles.inputRowMultiline,
+          ]}
+        >
+          {leftAdornment ? <View style={styles.adornmentWrap}>{leftAdornment}</View> : null}
+
+          <TextInput
+            {...webInputProps}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor={colors.textSubtle}
+            multiline={multiline}
+            numberOfLines={numberOfLines}
+            keyboardType={keyboardType}
+            secureTextEntry={secureTextEntry}
+            editable={editable}
+            {...textInputProps}
+            style={[
+              styles.input,
+              compact && styles.inputCompact,
+              multiline && styles.inputMultiline,
+              {
+                textAlign: getTextAlign(),
+                writingDirection: isRTL ? 'rtl' : 'ltr',
+              },
+              style,
+              inputStyle,
+            ]}
+          />
+
+          {rightAdornment ? <View style={styles.adornmentWrap}>{rightAdornment}</View> : null}
+        </View>
+      </View>
+
+      {errorText ? (
         <Text
           style={[
-            styles.helper,
+            styles.message,
+            styles.errorText,
+            compact && styles.messageCompact,
+            { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+          ]}
+        >
+          {errorText}
+        </Text>
+      ) : helperText ? (
+        <Text
+          style={[
+            styles.message,
+            styles.helperText,
+            compact && styles.messageCompact,
             { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
           ]}
         >
@@ -73,32 +142,101 @@ export function TextField({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    gap: spacing.xs,
-  },
   label: {
     ...typography.label,
-    color: colors.textMuted,
+    marginBottom: 8,
+    color: '#8C8078',
+    fontSize: 11,
+    lineHeight: 14,
   },
-  input: {
-    minHeight: 54,
-    borderRadius: radius.lg,
+
+  labelCompact: {
+    marginBottom: 6,
+    fontSize: 10,
+    lineHeight: 12,
+  },
+
+  fieldShell: {
+    minHeight: 56,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceRaised,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    color: colors.text,
-    fontSize: 15,
+    borderColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: spacing.md,
+    justifyContent: 'center',
   },
-  inputWeb: {
-    ...webDesktopControl,
-    minHeight: 44,
-    paddingHorizontal: spacing.md + 2,
+
+  fieldShellCompact: {
+    minHeight: 48,
+    borderRadius: 14,
+    paddingHorizontal: spacing.sm + 4,
+  },
+
+  fieldShellError: {
+    borderColor: '#E7B5AE',
+    backgroundColor: '#FFF8F7',
+  },
+
+  fieldShellDisabled: {
+    backgroundColor: '#F6F3EF',
+    opacity: 0.72,
+  },
+
+  inputRow: {
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+  },
+
+  inputRowMultiline: {
+    alignItems: 'flex-start',
     paddingVertical: spacing.sm + 2,
   },
-  helper: {
-    ...typography.caption,
+
+  adornmentWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  input: {
+    ...typography.body,
+    flex: 1,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    margin: 0,
+  },
+
+  inputCompact: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+
+  inputMultiline: {
+    minHeight: 96,
+    textAlignVertical: 'top',
+    paddingTop: 0,
+  },
+
+  message: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+
+  messageCompact: {
+    marginTop: 5,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+
+  helperText: {
     color: colors.textSubtle,
+  },
+
+  errorText: {
+    color: '#BE5B50',
+    fontWeight: '600',
   },
 });

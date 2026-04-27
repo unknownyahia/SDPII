@@ -26,6 +26,17 @@ service cloud.firestore {
       return isSelf(userId) || isAdmin();
     }
 
+    function optionalFieldUnchanged(fieldName) {
+      return (
+        !(fieldName in resource.data) &&
+        !(fieldName in request.resource.data)
+      ) || (
+        fieldName in resource.data &&
+        fieldName in request.resource.data &&
+        request.resource.data[fieldName] == resource.data[fieldName]
+      );
+    }
+
     function userHasOrganizationRole(userId) {
       return exists(/databases/$(database)/documents/users/$(userId)) &&
         userDoc(userId).data.role == 'organization';
@@ -56,6 +67,18 @@ service cloud.firestore {
         category == 'event' ||
         category == 'sighting' ||
         category == 'weather';
+    }
+
+    function isValidDisplayCategory(category) {
+      return category == 'food' ||
+        category == 'coffee' ||
+        category == 'study' ||
+        category == 'outdoors' ||
+        category == 'fishing' ||
+        category == 'camping' ||
+        category == 'events' ||
+        category == 'family' ||
+        category == 'sights';
     }
 
     function isValidReportReason(reason) {
@@ -123,6 +146,7 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'text',
           'category',
+          'displayCategory',
           'locationName',
           'updatedAt'
         ]) &&
@@ -130,7 +154,12 @@ service cloud.firestore {
         request.resource.data.text.size() > 0 &&
         request.resource.data.text.size() <= 280 &&
         (request.resource.data.category == null ||
-          isValidCategory(request.resource.data.category));
+          isValidCategory(request.resource.data.category)) &&
+        (
+          !('displayCategory' in request.resource.data) ||
+          request.resource.data.displayCategory == null ||
+          isValidDisplayCategory(request.resource.data.displayCategory)
+        );
     }
 
     function isAdminModerationPostUpdate() {
@@ -185,6 +214,8 @@ service cloud.firestore {
           'bio',
           'language',
           'privacyMode',
+          'emailNotifications',
+          'marketingEmails',
           'createdAt',
           'updatedAt'
         ]) &&
@@ -196,7 +227,9 @@ service cloud.firestore {
           request.resource.data.language == 'en' ||
           request.resource.data.language == 'ar'
         ) &&
-        request.resource.data.privacyMode is bool;
+        request.resource.data.privacyMode is bool &&
+        request.resource.data.emailNotifications is bool &&
+        request.resource.data.marketingEmails is bool;
 
       allow update: if (
           isSelf(userId) &&
@@ -210,6 +243,8 @@ service cloud.firestore {
             'bio',
             'language',
             'privacyMode',
+            'emailNotifications',
+            'marketingEmails',
             'updatedAt'
           ]) &&
           (
@@ -226,6 +261,8 @@ service cloud.firestore {
           request.resource.data.bio == resource.data.bio &&
           request.resource.data.language == resource.data.language &&
           request.resource.data.privacyMode == resource.data.privacyMode &&
+          optionalFieldUnchanged('emailNotifications') &&
+          optionalFieldUnchanged('marketingEmails') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'role',
             'updatedAt'
@@ -313,8 +350,11 @@ service cloud.firestore {
           'userId',
           'text',
           'category',
+          'displayCategory',
           'lat',
           'lng',
+          'placeId',
+          'heroImageUrl',
           'locationName',
           'createdAt'
         ]) &&
@@ -324,8 +364,23 @@ service cloud.firestore {
         request.resource.data.text.size() <= 280 &&
         (request.resource.data.category == null ||
           isValidCategory(request.resource.data.category)) &&
+        (
+          !('displayCategory' in request.resource.data) ||
+          request.resource.data.displayCategory == null ||
+          isValidDisplayCategory(request.resource.data.displayCategory)
+        ) &&
         request.resource.data.lat is number &&
         request.resource.data.lng is number &&
+        (
+          !('placeId' in request.resource.data) ||
+          request.resource.data.placeId == null ||
+          request.resource.data.placeId is string
+        ) &&
+        (
+          !('heroImageUrl' in request.resource.data) ||
+          request.resource.data.heroImageUrl == null ||
+          request.resource.data.heroImageUrl is string
+        ) &&
         (
           request.resource.data.locationName == null ||
           request.resource.data.locationName is string
@@ -459,6 +514,18 @@ service cloud.firestore {
         isValidReportStatus(request.resource.data.status);
 
       allow delete: if false;
+    }
+
+    match /{path=**}/comments/{commentId} {
+      allow read: if isSignedIn();
+    }
+
+    match /{path=**}/reactions/{userId} {
+      allow read: if isSignedIn();
+    }
+
+    match /{path=**}/notifications/{notificationId} {
+      allow read: if isAdmin();
     }
 
     match /{document=**} {

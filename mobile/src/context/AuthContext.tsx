@@ -7,7 +7,10 @@ import React, {
   type PropsWithChildren,
 } from 'react';
 
-import { observeAuthState } from '../services/authService';
+import {
+  ensureRestoredUserAccount,
+  observeAuthState,
+} from '../services/authService';
 import type { AppUserIdentity } from '../types/user';
 
 type AuthContextValue = {
@@ -30,6 +33,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    void ensureRestoredUserAccount(user).catch(() => undefined);
+  }, [user]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

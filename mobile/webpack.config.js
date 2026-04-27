@@ -42,7 +42,11 @@ module.exports = (_, argv = {}) => {
         },
         {
           test: /\.[jt]sx?$/,
-          exclude: /node_modules/,
+          exclude: modulePath =>
+            /node_modules/.test(modulePath) &&
+            !/node_modules[\\/](@expo[\\/]vector-icons|expo-font|expo-modules-core)/.test(
+              modulePath
+            ),
           use: {
             loader: 'babel-loader',
             options: {
@@ -56,7 +60,7 @@ module.exports = (_, argv = {}) => {
           use: ['style-loader', 'css-loader'],
         },
         {
-          test: /\.(png|jpe?g|gif|webp|svg)$/i,
+          test: /\.(png|jpe?g|gif|webp|svg|ttf|otf|woff2?|eot)$/i,
           type: 'asset/resource',
         },
       ],
@@ -64,6 +68,8 @@ module.exports = (_, argv = {}) => {
     plugins: [
       new webpack.DefinePlugin({
         __DEV__: JSON.stringify(!isProduction),
+        'process.env.EXPO_OS': JSON.stringify('web'),
+        'process.env.NODE_ENV': JSON.stringify(isProduction ? 'production' : 'development'),
       }),
       new HtmlWebpackPlugin({
         template: path.resolve(__dirname, 'web/index.html'),

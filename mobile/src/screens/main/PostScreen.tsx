@@ -13,6 +13,13 @@ import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 
 import { ScreenContainer } from '../../components/ui/ScreenContainer';
+import {
+  POST_CATEGORY_OPTIONS,
+  getCategoryOptionLabel,
+  getPostCategoryOption,
+  type DisplayCategoryId,
+  type PostCategoryOption,
+} from '../../constants/categories';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalization } from '../../context/LocalizationContext';
 import { subscribeToActivePromotedEventsCountByCreator } from '../../repositories/eventRepository';
@@ -21,7 +28,17 @@ import {
   getLocationDisplayName,
   requestForegroundLocationPermission,
 } from '../../services/locationService';
+import {
+  findLocationPreset,
+  getLocationPresetLabel,
+  type LocationOverride,
+} from '../../services/locationPresets';
 import { observeCurrentUserProfile } from '../../services/profileService';
+import {
+  createPromotedEvent,
+  EventPermissionError,
+  EventValidationError,
+} from '../../services/eventService';
 import {
   PostLocationPermissionError,
   PostValidationError,
@@ -42,23 +59,6 @@ import type { MainTabParamList } from '../../navigation/types';
 import type { AppLanguage } from '../../types/profile';
 import type { SpotCategory } from '../../types/post';
 import type { UserSubscription } from '../../types/subscription';
-
-type ComposeCategoryId =
-  | 'all'
-  | 'food'
-  | 'coffee'
-  | 'study'
-  | 'outdoors'
-  | 'events'
-  | 'more';
-
-type ComposeCategory = {
-  id: ComposeCategoryId;
-  labelEn: string;
-  labelAr: string;
-  glyph: string;
-  backendCategory: SpotCategory;
-};
 
 type MediaPreview = {
   id: string;
@@ -86,66 +86,23 @@ type MobileCopy = {
   promoBody: string;
   learnMore: string;
   addMore: string;
+  eventFormTitle: string;
+  eventTitlePlaceholder: string;
+  eventDescriptionPlaceholder: string;
+  eventStartPlaceholder: string;
+  eventEndPlaceholder: string;
+  createEvent: string;
+  creatingEvent: string;
   guestLabel: string;
   retry: string;
 };
 
-const CHARACTER_LIMIT = 500;
+const CHARACTER_LIMIT = 280;
 
 const MOBILE_AVATAR_FALLBACK_URI =
   'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80';
 
-const CATEGORIES: readonly ComposeCategory[] = [
-  {
-    id: 'all',
-    labelEn: 'All',
-    labelAr: 'الكل',
-    glyph: '',
-    backendCategory: 'sighting',
-  },
-  {
-    id: 'food',
-    labelEn: 'Food & Drinks',
-    labelAr: 'مأكولات ومشروبات',
-    glyph: '⌂',
-    backendCategory: 'sighting',
-  },
-  {
-    id: 'coffee',
-    labelEn: 'Coffee',
-    labelAr: 'قهوة',
-    glyph: '◌',
-    backendCategory: 'sighting',
-  },
-  {
-    id: 'study',
-    labelEn: 'Study & Work',
-    labelAr: 'دراسة وعمل',
-    glyph: '▣',
-    backendCategory: 'sighting',
-  },
-  {
-    id: 'outdoors',
-    labelEn: 'Outdoors',
-    labelAr: 'خارجي',
-    glyph: '△',
-    backendCategory: 'weather',
-  },
-  {
-    id: 'events',
-    labelEn: 'Events',
-    labelAr: 'فعاليات',
-    glyph: '✦',
-    backendCategory: 'event',
-  },
-  {
-    id: 'more',
-    labelEn: 'More',
-    labelAr: 'المزيد',
-    glyph: '⋯',
-    backendCategory: 'fishing',
-  },
-];
+const DEFAULT_COMPOSE_CATEGORY = getPostCategoryOption('sights');
 
 const SAMPLE_MEDIA_LIBRARY: readonly MediaPreview[] = [
   {
@@ -174,6 +131,18 @@ const SAMPLE_MEDIA_LIBRARY: readonly MediaPreview[] = [
     kind: 'image',
   },
 ] as const;
+
+function getPersistableHeroImageUrl(mediaItems: readonly MediaPreview[]) {
+  return mediaItems.find(
+    item => item.kind === 'image' && /^https?:\/\//i.test(item.uri)
+  )?.uri ?? null;
+}
+
+function getDefaultEventDateTime(hoursFromNow: number) {
+  return new Date(Date.now() + hoursFromNow * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 16);
+}
 
 function getMobileCopy(language: AppLanguage): MobileCopy {
   if (language === 'ar') {
@@ -205,6 +174,13 @@ function getMobileCopy(language: AppLanguage): MobileCopy {
       promoBody: 'هل تريد الوصول لعدد أكبر؟ روّج تحديثك ليصل لآلاف المستخدمين في قطر.',
       learnMore: 'اعرف المزيد',
       addMore: 'إضافة',
+      eventFormTitle: 'إنشاء فعالية مروجة',
+      eventTitlePlaceholder: 'اسم الفعالية',
+      eventDescriptionPlaceholder: 'وصف قصير للفعالية',
+      eventStartPlaceholder: 'وقت البداية مثل 2026-05-01T18:00',
+      eventEndPlaceholder: 'وقت النهاية مثل 2026-05-01T21:00',
+      createEvent: 'نشر الفعالية',
+      creatingEvent: 'جار النشر...',
       guestLabel: 'ضيف',
       retry: 'إعادة المحاولة',
     };
@@ -212,7 +188,7 @@ function getMobileCopy(language: AppLanguage): MobileCopy {
 
   return {
     title: 'Create a local update',
-    subtitle: 'Share what\'s happening in your community and help others discover it.',
+    subtitle: "Share what's happening in your community and help others discover it.",
     sectionOne: "What's happening?",
     sectionTwo: 'Where is this happening?',
     sectionThree: 'Add a photo or video (optional)',
@@ -239,6 +215,13 @@ function getMobileCopy(language: AppLanguage): MobileCopy {
       'Want to reach more people? Promote your event or update to get discovered by thousands in Qatar.',
     learnMore: 'Learn more',
     addMore: 'Add more',
+    eventFormTitle: 'Create promoted event',
+    eventTitlePlaceholder: 'Event title',
+    eventDescriptionPlaceholder: 'Short event description',
+    eventStartPlaceholder: 'Start time, e.g. 2026-05-01T18:00',
+    eventEndPlaceholder: 'End time, e.g. 2026-05-01T21:00',
+    createEvent: 'Publish Event',
+    creatingEvent: 'Publishing...',
     guestLabel: 'Guest',
     retry: 'Retry',
   };
@@ -306,6 +289,7 @@ export function PostScreen() {
 
   const copy = React.useMemo(() => getMobileCopy(language), [language]);
   const avatarInitial = (user?.displayInfo || user?.email || 'S').trim().charAt(0).toUpperCase();
+  const defaultLocationQuery = language === 'ar' ? 'قطر' : 'Qatar';
 
   const [userRole, setUserRole] = React.useState<string>('user');
   const [subscription, setSubscription] = React.useState<UserSubscription | null>(null);
@@ -313,21 +297,41 @@ export function PostScreen() {
   const [setupIssue, setSetupIssue] = React.useState<string | null>(null);
   const [refreshToken, setRefreshToken] = React.useState(0);
 
-  const [composeCategory, setComposeCategory] = React.useState<ComposeCategoryId>('all');
-  const [backendCategory, setBackendCategory] = React.useState<SpotCategory>('sighting');
+  const [composeCategory, setComposeCategory] =
+    React.useState<DisplayCategoryId>(DEFAULT_COMPOSE_CATEGORY.id);
+  const [backendCategory, setBackendCategory] =
+    React.useState<SpotCategory>(DEFAULT_COMPOSE_CATEGORY.backendCategory);
   const [postText, setPostText] = React.useState('');
   const [postLoading, setPostLoading] = React.useState(false);
   const [lastPostSuccess, setLastPostSuccess] = React.useState(false);
+  const [eventTitle, setEventTitle] = React.useState('');
+  const [eventDescription, setEventDescription] = React.useState('');
+  const [eventStart, setEventStart] = React.useState(() => getDefaultEventDateTime(24));
+  const [eventEnd, setEventEnd] = React.useState(() => getDefaultEventDateTime(27));
+  const [eventLoading, setEventLoading] = React.useState(false);
 
   const [locationName, setLocationName] = React.useState('');
-  const [locationQuery, setLocationQuery] = React.useState(language === 'ar' ? 'قطر' : 'Qatar');
+  const [locationQuery, setLocationQuery] = React.useState(defaultLocationQuery);
   const [selectedArea, setSelectedArea] = React.useState<string | null>(null);
+  const [selectedLocationOverride, setSelectedLocationOverride] =
+    React.useState<LocationOverride | null>(null);
   const [capturePointPreview, setCapturePointPreview] = React.useState('');
   const [locationPreviewLoading, setLocationPreviewLoading] = React.useState(false);
 
-  const [mediaItems, setMediaItems] = React.useState<MediaPreview[]>(
-    [...SAMPLE_MEDIA_LIBRARY].slice(0, 4)
-  );
+  const [mediaItems, setMediaItems] = React.useState<MediaPreview[]>([]);
+
+  React.useEffect(() => {
+    setLocationQuery(current => {
+      const trimmed = current.trim();
+      const normalized = trimmed.toLowerCase();
+
+      if (!trimmed || normalized === 'qatar' || trimmed === 'قطر') {
+        return defaultLocationQuery;
+      }
+
+      return current;
+    });
+  }, [defaultLocationQuery]);
 
   const handleSetupIssue = React.useCallback((error: unknown, fallbackMessage: string) => {
     const nextMessage = isDataAccessBlockedError(error)
@@ -393,7 +397,9 @@ export function PostScreen() {
   }, [handleSetupIssue, refreshToken, user?.id]);
 
   React.useEffect(() => {
-    setLastPostSuccess(false);
+    if (postText.trim()) {
+      setLastPostSuccess(false);
+    }
   }, [postText]);
 
   const promotedEventAccess = getPromotedEventAccessState({
@@ -429,7 +435,7 @@ export function PostScreen() {
     setRefreshToken(current => current + 1);
   }, []);
 
-  const handleSelectCategory = React.useCallback((nextCategory: ComposeCategory) => {
+  const handleSelectCategory = React.useCallback((nextCategory: PostCategoryOption) => {
     setComposeCategory(nextCategory.id);
     setBackendCategory(nextCategory.backendCategory);
   }, []);
@@ -458,6 +464,11 @@ export function PostScreen() {
           setCapturePointPreview(nextLabel);
           setLocationQuery(nextLabel);
           setSelectedArea(copy.nearMe);
+          setSelectedLocationOverride({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            locationName: nextLabel,
+          });
         } catch (error: any) {
           showAlert(
             t('post.locationPermissionTitle'),
@@ -470,9 +481,15 @@ export function PostScreen() {
         return;
       }
 
+      const presetLocation = findLocationPreset(areaLabel);
+      const presetLabel = presetLocation
+        ? getLocationPresetLabel(presetLocation, language)
+        : areaLabel;
+
       setSelectedArea(areaLabel);
-      setLocationQuery(areaLabel);
-      setCapturePointPreview('');
+      setLocationQuery(presetLabel);
+      setSelectedLocationOverride(presetLocation);
+      setCapturePointPreview(presetLocation ? presetLabel : '');
     },
     [copy.locationHint, copy.nearMe, language, t]
   );
@@ -504,10 +521,15 @@ export function PostScreen() {
     setLastPostSuccess(false);
 
     try {
+      const locationOverride =
+        selectedLocationOverride ?? findLocationPreset(locationQuery);
       const result = await publishCurrentLocationPost({
         userId: user?.id,
         text: postText,
         category: backendCategory,
+        displayCategory: composeCategory,
+        locationOverride,
+        heroImageUrl: getPersistableHeroImageUrl(mediaItems),
       });
 
       setLocationName(result.locationName);
@@ -516,6 +538,7 @@ export function PostScreen() {
         setLocationQuery(result.locationName);
       }
       setPostText('');
+      setMediaItems([]);
       setLastPostSuccess(true);
       showAlert(t('post.createdAlertTitle'), t('post.createdAlertBody'));
     } catch (error: any) {
@@ -529,6 +552,43 @@ export function PostScreen() {
       }
     } finally {
       setPostLoading(false);
+    }
+  };
+
+  const handleCreatePromotedEvent = async () => {
+    setEventLoading(true);
+
+    try {
+      const locationOverride =
+        selectedLocationOverride ?? findLocationPreset(locationQuery);
+      const result = await createPromotedEvent({
+        userId: user?.id,
+        userRole,
+        subscription,
+        title: eventTitle,
+        description: eventDescription,
+        category: 'event',
+        startTime: eventStart,
+        endTime: eventEnd,
+        activePromotedEventsCount,
+        locationOverride,
+      });
+
+      setLocationName(result.locationName);
+      setCapturePointPreview(result.locationName);
+      setEventTitle('');
+      setEventDescription('');
+      setEventStart(getDefaultEventDateTime(24));
+      setEventEnd(getDefaultEventDateTime(27));
+      showAlert(t('post.eventCreatedAlertTitle'), t('post.eventCreatedAlertBody'));
+    } catch (error) {
+      if (error instanceof EventValidationError || error instanceof EventPermissionError) {
+        showAlert(t('post.createErrorTitle'), error.message);
+      } else {
+        showAlert(t('post.createErrorTitle'), getErrorMessage(error, 'Unable to create event.'));
+      }
+    } finally {
+      setEventLoading(false);
     }
   };
 
@@ -651,7 +711,7 @@ export function PostScreen() {
             style={styles.categoryRail}
             contentContainerStyle={[styles.categoryRailContent, { flexDirection: getRowDirection() }]}
           >
-            {CATEGORIES.map(item => {
+            {POST_CATEGORY_OPTIONS.map(item => {
               const active = composeCategory === item.id;
 
               return (
@@ -677,7 +737,7 @@ export function PostScreen() {
                       { writingDirection: isRTL ? 'rtl' : 'ltr' },
                     ]}
                   >
-                    {language === 'ar' ? item.labelAr : item.labelEn}
+                    {getCategoryOptionLabel(item, language)}
                   </Text>
                 </Pressable>
               );
@@ -720,7 +780,15 @@ export function PostScreen() {
             <PinGlyph />
             <TextInput
               value={locationQuery}
-              onChangeText={setLocationQuery}
+              onChangeText={value => {
+                const presetLocation = findLocationPreset(value);
+                setLocationQuery(value);
+                setSelectedArea(null);
+                setSelectedLocationOverride(presetLocation);
+                setCapturePointPreview(
+                  presetLocation ? getLocationPresetLabel(presetLocation, language) : ''
+                );
+              }}
               placeholder={copy.locationPlaceholder}
               placeholderTextColor={colors.textSubtle}
               style={[
@@ -928,6 +996,85 @@ export function PostScreen() {
                 : t('post.eventAccessBlockedTitle')}
             </Text>
           </View>
+
+          {promotedEventAccess.allowed ? (
+            <View style={styles.eventForm}>
+              <Text
+                style={[
+                  styles.eventFormTitle,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {copy.eventFormTitle}
+              </Text>
+
+              <TextInput
+                value={eventTitle}
+                onChangeText={setEventTitle}
+                placeholder={copy.eventTitlePlaceholder}
+                placeholderTextColor={colors.textSubtle}
+                style={[
+                  styles.eventInput,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              />
+
+              <TextInput
+                value={eventDescription}
+                onChangeText={setEventDescription}
+                placeholder={copy.eventDescriptionPlaceholder}
+                placeholderTextColor={colors.textSubtle}
+                multiline
+                style={[
+                  styles.eventInput,
+                  styles.eventDescriptionInput,
+                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              />
+
+              <View style={[styles.eventTimeRow, { flexDirection: getRowDirection() }]}>
+                <TextInput
+                  value={eventStart}
+                  onChangeText={setEventStart}
+                  placeholder={copy.eventStartPlaceholder}
+                  placeholderTextColor={colors.textSubtle}
+                  style={[
+                    styles.eventInput,
+                    styles.eventTimeInput,
+                    { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                />
+                <TextInput
+                  value={eventEnd}
+                  onChangeText={setEventEnd}
+                  placeholder={copy.eventEndPlaceholder}
+                  placeholderTextColor={colors.textSubtle}
+                  style={[
+                    styles.eventInput,
+                    styles.eventTimeInput,
+                    { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                />
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={eventLoading}
+                onPress={handleCreatePromotedEvent}
+                style={({ pressed }) => [
+                  styles.eventButton,
+                  eventLoading && styles.publishButtonDisabled,
+                  pressed && !eventLoading && styles.publishButtonPressed,
+                ]}
+              >
+                {eventLoading ? (
+                  <ActivityIndicator color={colors.surface} />
+                ) : (
+                  <Text style={styles.eventButtonLabel}>{copy.createEvent}</Text>
+                )}
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.promoCard}>
@@ -1606,6 +1753,58 @@ const styles = StyleSheet.create({
   },
   accessNoticeTitlePositive: {
     color: '#2E7B57',
+  },
+  eventForm: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#E3DDD6',
+    backgroundColor: '#FFFFFF',
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  eventFormTitle: {
+    ...typography.button,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  eventInput: {
+    ...typography.body,
+    minHeight: 46,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: '#DED8D1',
+    backgroundColor: '#FBFBFB',
+    color: colors.text,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.sm,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  eventDescriptionInput: {
+    minHeight: 78,
+    textAlignVertical: 'top',
+  },
+  eventTimeRow: {
+    gap: spacing.sm,
+  },
+  eventTimeInput: {
+    flex: 1,
+  },
+  eventButton: {
+    minHeight: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventButtonLabel: {
+    ...typography.button,
+    color: colors.surface,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   promoCard: {
     borderRadius: radius.lg,

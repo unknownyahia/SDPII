@@ -3,252 +3,187 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 
-import { FilterChip } from '../../components/ui/Chip';
-import { PrimaryButton, SecondaryButton } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
+import { AdminConsolePanel } from '../../components/profile/AdminConsolePanel';
+import { LeaderboardPanel } from '../../components/profile/LeaderboardPanel';
 import { LoadingState } from '../../components/ui/LoadingState';
-import { ScreenContainer } from '../../components/ui/ScreenContainer';
 import { StatusBanner } from '../../components/ui/StatusBanner';
-import { TextField } from '../../components/ui/TextField';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalization } from '../../context/LocalizationContext';
 import { subscribeToPosts } from '../../repositories/postsRepository';
-import {
-  AnalyticsValidationError,
-  getAdminAnalytics,
-} from '../../services/analyticsService';
 import { logoutUser } from '../../services/authService';
-import { observeCommentCountsByPost } from '../../services/commentService';
 import {
   buildDiscoverySpotItems,
-  formatRelativeTime,
   getTimestampMs,
 } from '../../services/discoveryService';
 import { observeFavoritePostIds } from '../../services/favoriteService';
-import {
-  hideReportedTarget,
-  ModerationValidationError,
-  observeReports,
-  reviewReportStatus,
-} from '../../services/moderationService';
 import {
   markUserNotificationRead,
   NotificationValidationError,
   observeNotifications,
 } from '../../services/notificationService';
 import {
-  markUserAsOrganization,
-  OrganizationValidationError,
-} from '../../services/organizationService';
-import {
   observeCurrentUserProfile,
   ProfileValidationError,
   saveCurrentUserProfile,
 } from '../../services/profileService';
-import { observeLikeCountsByPost } from '../../services/reactionService';
-import {
-  SubscriptionValidationError,
-  observeUserSubscription,
-  updateUserPlan,
-} from '../../services/subscriptionService';
-import { colors, radius, spacing, typography } from '../../theme/designSystem';
-import {
-  webDesktopControl,
-  webDesktopLayout,
-  webDesktopSectionTitle,
-  webDesktopSupportSurface,
-  webDesktopSurface,
-} from '../../theme/webDesktopSystem';
-import { getReportReasonLabel, getReportStatusLabel } from '../../i18n';
+import { observeUserSubscription } from '../../services/subscriptionService';
+import { webDesktopColors, webDesktopLayout } from '../../theme/webDesktopSystem';
 import {
   getBlockedDataMessage,
   getErrorMessage,
   isDataAccessBlockedError,
 } from '../../utils/dataAccessError';
 import { showAlert } from '../../utils/showAlert';
-import type { AdminAnalyticsSnapshot } from '../../types/analytics';
-import type { DiscoverySpot } from '../../types/discovery';
 import type { MainTabParamList } from '../../navigation/types';
 import type { AppNotification } from '../../types/notification';
 import type { AppLanguage } from '../../types/profile';
 import type { SpotPost } from '../../types/post';
-import type { ModerationReport, ReportStatus } from '../../types/report';
-import type {
-  PlanLevel,
-  PlanStatus,
-  UserSubscription,
-} from '../../types/subscription';
+import type { UserSubscription } from '../../types/subscription';
+import type { UserRole } from '../../types/user';
 
-type ActivityEntry = {
+const AVATAR =
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80';
+
+const SAVED_SPOT_FALLBACK_IMAGE =
+  'https://images.unsplash.com/photo-1728488447537-d0ef1b9018e3?auto=format&fit=crop&w=1200&q=80';
+
+const ACTIVITY_IMAGES = [
+  'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=800&q=80',
+  'https://images.unsplash.com/photo-1658863714664-bced34d5606f?auto=format&fit=crop&w=800&q=80',
+] as const;
+
+type SavedSpotPreview = {
   id: string;
-  kind: 'like' | 'comment' | 'save';
   title: string;
-  subtitle: string;
-  timestampLabel: string;
-  unread?: boolean;
-  onPress?: () => void;
+  image: string;
+  meta: string;
+  description: string;
+  savedAgo: string;
 };
 
-const WIDE_LAYOUT_BREAKPOINT = 1120;
-const STICKY_RAIL_BREAKPOINT = 1280;
-const FALLBACK_AVATAR_URI =
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=240&q=80';
-const FALLBACK_SPOT_IMAGE =
-  'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=1200&q=80';
+type ActivityPreview = {
+  id: string;
+  type: 'heart' | 'bookmark' | 'chatbox';
+  title: string;
+  meta: string;
+  time: string;
+  imageUrl: string;
+  notificationId?: string;
+  unread?: boolean;
+};
 
-function getDesktopCopy(language: AppLanguage) {
+function getCopy(language: AppLanguage) {
   if (language === 'ar') {
     return {
-      toolbarAreaSummary: 'ملخص المنطقة',
-      toolbarNearMe: 'بالقرب مني',
-      fallbackName: 'مستخدم Spots',
-      fallbackEmail: 'qa.user@spots.demo',
-      roleBadge: 'الدور',
-      planBadge: 'الخطة',
-      xpLabel: 'XP',
-      xpHint: 'واصل الاستكشاف',
-      savesLabel: 'المحفوظات',
-      savesHint: 'أماكن محفوظة',
-      unreadLabel: 'غير المقروء',
-      unreadHint: 'إشعارات جديدة',
-      savedSpotsTitle: 'الأماكن المحفوظة',
-      savedSpotsAction: 'عرض الكل',
-      savedEmptyTitle: 'لا توجد أماكن محفوظة بعد.',
-      savedEmptySubtitle: 'احفظ مكانا من Explore ليظهر هنا بشكل سريع.',
-      recentActivityTitle: 'النشاط الأخير',
-      recentActivityAction: 'عرض النشاط',
-      activityEmptyTitle: 'لا يوجد نشاط جديد.',
-      activityEmptySubtitle: 'سيظهر الإعجاب والتعليقات والحفظ هنا.',
-      settingsTitle: 'إعدادات الحساب',
-      settingsSubtitle: 'حدّث تفاصيل الحساب وتفضيلاتك الأساسية.',
-      usernameLabel: 'اسم المستخدم',
-      emailLabel: 'البريد الإلكتروني',
+      areaSummary: 'ملخص المنطقة',
+      nearMe: 'بالقرب مني',
+      role: 'الدور',
+      plan: 'الخطة',
+      xp: 'XP',
+      saves: 'المحفوظات',
+      unread: 'غير المقروء',
+      keepExploring: 'استمر في الاستكشاف',
+      savedPlaces: 'الأماكن المحفوظة',
+      newNotifications: 'إشعارات جديدة',
+      savedSpots: 'الأماكن المحفوظة',
+      viewAllSaves: 'عرض كل المحفوظات',
+      recentActivity: 'النشاط الأخير',
+      viewAllActivity: 'عرض كل النشاط',
+      settings: 'إعدادات الحساب',
+      settingsBody: 'حدّث تفاصيل الحساب والتفضيلات الأساسية.',
+      username: 'اسم المستخدم',
+      email: 'البريد الإلكتروني',
+      bio: 'النبذة',
       planLabel: 'الخطة',
-      languageLabel: 'اللغة',
-      privacyLabel: 'وضع الخصوصية',
-      privacyHint: 'قلّل ظهور الملف الشخصي في الميزات الاجتماعية القادمة.',
-      bioLabel: 'النبذة',
-      preferencesTitle: 'التفضيلات',
+      language: 'اللغة',
+      privacy: 'وضع الخصوصية',
+      privacyBody: 'قلل ظهور ملفك الشخصي للميزات الاجتماعية القادمة.',
+      preferences: 'التفضيلات',
       emailNotifications: 'إشعارات البريد',
-      emailNotificationsHint: 'تحديثات عن النشاط والحفظ وغير ذلك.',
-      marketingEmails: 'رسائل تسويقية',
-      marketingEmailsHint: 'نصائح وعروض وتحديثات ميزات.',
-      unreadNotifications: 'الإشعارات غير المقروءة',
-      unreadNotificationsHint: 'افتح نشاطك أو علّم الكل كمقروء.',
-      markAllRead: 'تعليم الكل كمقروء',
-      signInRequiredTitle: 'مطلوب تسجيل الدخول',
-      signInRequiredBody: 'سجّل الدخول لإدارة إعدادات الحساب والنشاط المحفوظ.',
+      emailNotificationsBody: 'استلم تحديثات حول النشاط والمحفوظات.',
+      marketingEmails: 'رسائل التسويق',
+      marketingEmailsBody: 'استلم نصائح وميزات جديدة وعروضا.',
       saveSettings: 'حفظ الإعدادات',
+      savingSettings: 'جار الحفظ...',
       signOut: 'تسجيل الخروج',
-      signingOut: 'جارٍ تسجيل الخروج...',
-      readAllDone: 'تم تحديث الإشعارات غير المقروءة.',
-      savedBadge: 'محفوظ',
-      savedActivityPrefix: 'حفظت',
-      likeSubtitle: 'إعجاب',
-      commentSubtitle: 'تعليق',
-      saveSubtitle: 'تم الحفظ',
-      adminTitle: 'أدوات المشرف',
-      adminSubtitle: 'أبقيناها متاحة هنا بدون أن تطغى على صفحة الحساب الرئيسية.',
-      adminAccountsTitle: 'صلاحيات الحسابات',
-      adminAccountsSubtitle: 'حوّل مستخدما إلى جهة تنظيمية.',
-      adminPlansTitle: 'الخطط',
-      adminPlansSubtitle: 'حدّث خطة أي مستخدم وحالتها.',
-      adminAnalyticsTitle: 'التحليلات',
-      adminAnalyticsSubtitle: 'نظرة سريعة على حالة النظام.',
-      adminModerationTitle: 'الإشراف',
-      adminModerationSubtitle: 'راجع البلاغات واتخذ الإجراء المناسب.',
-      adminReportsEmpty: 'لا توجد بلاغات مفتوحة حاليا.',
-      targetUserId: 'معرف المستخدم المستهدف',
-      roleUpdateAction: 'تحديث الدور',
-      planUpdateAction: 'تحديث الخطة',
-      refreshAnalytics: 'تحديث التحليلات',
-      hideReportedContent: 'إخفاء المحتوى المبلغ عنه',
-      analyticsUsers: 'مستخدمون',
-      analyticsPosts: 'منشورات',
-      analyticsEvents: 'فعاليات',
-      analyticsReports: 'بلاغات',
+      signingOut: 'جار تسجيل الخروج...',
+      noSavedTitle: 'لا توجد أماكن محفوظة بعد',
+      noSavedBody: 'احفظ أماكن من الاستكشاف لبناء قائمتك هنا.',
+      noActivityTitle: 'لا توجد إشعارات بعد',
+      noActivityBody: 'سيظهر نشاط الإعجابات والتعليقات هنا.',
+      defaultUsername: 'مستخدم Spots',
+      profileIssueTitle: 'تعذر تحميل بعض بيانات الحساب',
+      retry: 'إعادة المحاولة',
+      savedAlert: 'تم الحفظ',
+      savedAlertBody: 'تم تحديث إعدادات ملفك الشخصي.',
+      planDetails: 'تفاصيل الخطة',
+      languageEnglish: 'English',
+      languageArabic: 'العربية',
+      daysAgo: (value: number) => `قبل ${value} يوم`,
+      activityComment: 'نشاط تعليق',
+      activityLike: 'نشاط إعجاب',
     };
   }
 
   return {
-    toolbarAreaSummary: 'Area Summary',
-    toolbarNearMe: 'Near Me',
-    fallbackName: 'Spots QA User',
-    fallbackEmail: 'qa.user@spots.demo',
-    roleBadge: 'Role',
-    planBadge: 'Plan',
-    xpLabel: 'XP',
-    xpHint: 'Keep exploring!',
-    savesLabel: 'Saves',
-    savesHint: 'Saved places',
-    unreadLabel: 'Unread',
-    unreadHint: 'New notifications',
-    savedSpotsTitle: 'Saved Spots',
-    savedSpotsAction: 'View all saves',
-    savedEmptyTitle: 'No saved spots yet.',
-    savedEmptySubtitle: 'Save a place from Explore and it will stay handy here.',
-    recentActivityTitle: 'Recent Activity',
-    recentActivityAction: 'View all activity',
-    activityEmptyTitle: 'No recent activity yet.',
-    activityEmptySubtitle: 'Likes, comments, and saves will appear here.',
-    settingsTitle: 'Account Settings',
-    settingsSubtitle: 'Update the account details and preferences you use most.',
-    usernameLabel: 'Username',
-    emailLabel: 'Email',
+    areaSummary: 'Area Summary',
+    nearMe: 'Near Me',
+    role: 'Role',
+    plan: 'Plan',
+    xp: 'XP',
+    saves: 'Saves',
+    unread: 'Unread',
+    keepExploring: 'Keep exploring!',
+    savedPlaces: 'Saved places',
+    newNotifications: 'New notifications',
+    savedSpots: 'Saved Spots',
+    viewAllSaves: 'View all saves',
+    recentActivity: 'Recent Activity',
+    viewAllActivity: 'View all activity',
+    settings: 'Account Settings',
+    settingsBody: 'Update the account details and preferences you use most.',
+    username: 'Username',
+    email: 'Email',
+    bio: 'Bio',
     planLabel: 'Plan',
-    languageLabel: 'Language',
-    privacyLabel: 'Privacy mode',
-    privacyHint: 'Reduce profile visibility for future social features.',
-    bioLabel: 'Bio',
-    preferencesTitle: 'Preferences',
+    language: 'Language',
+    privacy: 'Privacy mode',
+    privacyBody: 'Reduce profile visibility for future social features.',
+    preferences: 'Preferences',
     emailNotifications: 'Email notifications',
-    emailNotificationsHint: 'Get updates about activity, saves and more.',
+    emailNotificationsBody: 'Get updates about activity, saves and more.',
     marketingEmails: 'Marketing emails',
-    marketingEmailsHint: 'Receive tips, new features and offers.',
-    unreadNotifications: 'Unread notifications',
-    unreadNotificationsHint: 'Open your activity or mark everything as read.',
-    markAllRead: 'Mark all read',
-    signInRequiredTitle: 'Sign-in required',
-    signInRequiredBody: 'Sign in to manage account settings and saved activity.',
+    marketingEmailsBody: 'Receive tips, new features and offers.',
     saveSettings: 'Save Settings',
+    savingSettings: 'Saving...',
     signOut: 'Sign Out',
     signingOut: 'Signing Out...',
-    readAllDone: 'Unread notifications were updated.',
-    savedBadge: 'Saved',
-    savedActivityPrefix: 'You saved',
-    likeSubtitle: 'Liked update',
-    commentSubtitle: 'Commented',
-    saveSubtitle: 'Saved spot',
-    adminTitle: 'Admin Tools',
-    adminSubtitle: 'Kept available below the main account center so desktop stays presentation-ready.',
-    adminAccountsTitle: 'Account role access',
-    adminAccountsSubtitle: 'Convert a user into an organization account.',
-    adminPlansTitle: 'Plan controls',
-    adminPlansSubtitle: 'Adjust any user plan and status.',
-    adminAnalyticsTitle: 'Analytics',
-    adminAnalyticsSubtitle: 'Quick read on product activity.',
-    adminModerationTitle: 'Moderation',
-    adminModerationSubtitle: 'Review reports and take follow-up action.',
-    adminReportsEmpty: 'No reports are waiting right now.',
-    targetUserId: 'Target user id',
-    roleUpdateAction: 'Update role',
-    planUpdateAction: 'Update plan',
-    refreshAnalytics: 'Refresh analytics',
-    hideReportedContent: 'Hide reported content',
-    analyticsUsers: 'Users',
-    analyticsPosts: 'Posts',
-    analyticsEvents: 'Events',
-    analyticsReports: 'Reports',
+    noSavedTitle: 'No saved spots yet',
+    noSavedBody: 'Save places from Explore to build your shortlist here.',
+    noActivityTitle: 'No notifications yet',
+    noActivityBody: 'Likes and comments activity will appear here.',
+    defaultUsername: 'Spots User',
+    profileIssueTitle: 'Some account data could not be loaded',
+    retry: 'Retry',
+    savedAlert: 'Saved',
+    savedAlertBody: 'Your profile settings were updated.',
+    planDetails: 'Plan details',
+    languageEnglish: 'English',
+    languageArabic: 'Arabic',
+    daysAgo: (value: number) => `${value} day${value === 1 ? '' : 's'} ago`,
+    activityComment: 'Comment activity',
+    activityLike: 'Like activity',
   };
 }
 
@@ -273,1981 +208,1280 @@ function uniqueSpotItemsByPlace<
   });
 }
 
-function SectionIcon({ tone }: { tone: 'saved' | 'activity' | 'settings' }) {
-  return (
-    <View
-      style={[
-        styles.sectionIcon,
-        tone === 'saved' && styles.sectionIconSaved,
-        tone === 'activity' && styles.sectionIconActivity,
-        tone === 'settings' && styles.sectionIconSettings,
-      ]}
-    >
-      <View style={styles.sectionIconInner} />
-    </View>
-  );
-}
+function formatRecencyLabel(value: unknown, copy: ReturnType<typeof getCopy>) {
+  const timestampMs = getTimestampMs(value);
+  if (timestampMs === null) {
+    return copy.daysAgo(1);
+  }
 
-function HeroStat({
-  accent,
-  label,
-  value,
-  subtitle,
-}: {
-  accent: 'xp' | 'saves' | 'unread';
-  label: string;
-  value: string;
-  subtitle: string;
-}) {
-  return (
-    <View style={styles.heroStat}>
-      <View
-        style={[
-          styles.heroStatIcon,
-          accent === 'xp' && styles.heroStatIconXp,
-          accent === 'saves' && styles.heroStatIconSaves,
-          accent === 'unread' && styles.heroStatIconUnread,
-        ]}
-      >
-        <View style={styles.heroStatGlyph} />
-      </View>
-      <View style={styles.heroStatCopy}>
-        <Text style={styles.heroStatValue}>{value}</Text>
-        <Text style={styles.heroStatLabel}>{label}</Text>
-        <Text style={styles.heroStatSubtitle}>{subtitle}</Text>
-      </View>
-    </View>
-  );
-}
-
-function SectionHeader({
-  title,
-  actionLabel,
-  iconTone,
-  onActionPress,
-}: {
-  title: string;
-  actionLabel?: string;
-  iconTone: 'saved' | 'activity' | 'settings';
-  onActionPress?: () => void;
-}) {
-  return (
-    <View style={styles.sectionHeader}>
-      <View style={styles.sectionHeading}>
-        <SectionIcon tone={iconTone} />
-        <Text style={styles.sectionHeadingTitle}>{title}</Text>
-      </View>
-      {actionLabel && onActionPress ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={onActionPress}
-          style={({ pressed }) => [styles.sectionAction, pressed && styles.pressedState]}
-        >
-          <Text style={styles.sectionActionLabel}>{actionLabel}</Text>
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function SavedSpotRow({
-  copy,
-  spot,
-  onPress,
-}: {
-  copy: ReturnType<typeof getDesktopCopy>;
-  spot: DiscoverySpot;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.savedRow, pressed && styles.pressedState]}
-    >
-      <Image
-        source={{ uri: spot.hero.imageUrl || FALLBACK_SPOT_IMAGE }}
-        style={styles.savedRowImage}
-      />
-      <View style={styles.savedRowBody}>
-        <View style={styles.savedRowCopy}>
-          <Text style={styles.savedRowTitle} numberOfLines={1}>
-            {spot.title}
-          </Text>
-          <Text style={styles.savedRowMeta} numberOfLines={1}>
-            {`${spot.categoryLabel}  •  ${spot.areaLabel}`}
-          </Text>
-          <Text style={styles.savedRowDescription} numberOfLines={2}>
-            {spot.description}
-          </Text>
-        </View>
-        <View style={styles.savedRowAside}>
-          <Text style={styles.savedRowAsideLabel}>{copy.savedBadge}</Text>
-          <Text style={styles.savedRowAsideValue}>{spot.updatedLabel}</Text>
-          <View style={styles.savedRowBookmark}>
-            <View style={styles.savedRowBookmarkInner} />
-          </View>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-function ActivityRow({ entry }: { entry: ActivityEntry }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={!entry.onPress}
-      onPress={entry.onPress}
-      style={({ pressed }) => [
-        styles.activityRow,
-        entry.unread && styles.activityRowUnread,
-        pressed && entry.onPress ? styles.pressedState : null,
-      ]}
-    >
-      <View
-        style={[
-          styles.activityIcon,
-          entry.kind === 'like' && styles.activityIconLike,
-          entry.kind === 'comment' && styles.activityIconComment,
-          entry.kind === 'save' && styles.activityIconSave,
-        ]}
-      >
-        <View style={styles.activityIconGlyph} />
-      </View>
-      <View style={styles.activityCopy}>
-        <Text style={styles.activityTitle} numberOfLines={1}>
-          {entry.title}
-        </Text>
-        <Text style={styles.activitySubtitle} numberOfLines={1}>
-          {entry.subtitle}
-        </Text>
-      </View>
-      <View style={styles.activityAside}>
-        <Text style={styles.activityTimestamp}>{entry.timestampLabel}</Text>
-        {entry.unread ? <View style={styles.activityUnreadDot} /> : null}
-      </View>
-    </Pressable>
-  );
-}
-
-function InlinePreferenceRow({
-  title,
-  subtitle,
-  right,
-  noBorder = false,
-}: {
-  title: string;
-  subtitle?: string;
-  right: React.ReactNode;
-  noBorder?: boolean;
-}) {
-  return (
-    <View style={[styles.preferenceRow, noBorder && styles.preferenceRowLast]}>
-      <View style={styles.preferenceCopy}>
-        <Text style={styles.preferenceTitle}>{title}</Text>
-        {subtitle ? <Text style={styles.preferenceSubtitle}>{subtitle}</Text> : null}
-      </View>
-      <View style={styles.preferenceControl}>{right}</View>
-    </View>
-  );
-}
-
-function SettingValuePill({ label, tone = 'neutral' }: { label: string; tone?: 'neutral' | 'success' }) {
-  return (
-    <View
-      style={[
-        styles.settingValuePill,
-        tone === 'success' && styles.settingValuePillSuccess,
-      ]}
-    >
-      <Text
-        style={[
-          styles.settingValuePillLabel,
-          tone === 'success' && styles.settingValuePillLabelSuccess,
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function ToolbarButton({
-  label,
-  filled = false,
-  onPress,
-}: {
-  label?: string;
-  filled?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.toolbarButton,
-        filled && styles.toolbarButtonFilled,
-        pressed && styles.pressedState,
-      ]}
-    >
-      {filled ? (
-        <View style={styles.searchGlyph}>
-          <View style={styles.searchGlyphCircle} />
-          <View style={styles.searchGlyphHandle} />
-        </View>
-      ) : null}
-      {label ? (
-        <Text style={[styles.toolbarButtonLabel, filled && styles.toolbarButtonLabelFilled]}>
-          {label}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
+  const elapsedDays = Math.max(1, Math.round((Date.now() - timestampMs) / (24 * 60 * 60 * 1000)));
+  return copy.daysAgo(elapsedDays);
 }
 
 export function ProfileScreen() {
   const { user } = useAuth();
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
   const {
-    getPlanLevelLabel,
-    getPlanStatusLabel,
-    getRoleLabel,
-    getRowDirection,
-    getTextAlign,
-    isRTL,
     language,
     setLanguagePreference,
-    t,
+    getRoleLabel,
+    getPlanLevelLabel,
+    getPlanStatusLabel,
+    getTextAlign,
+    isRTL,
   } = useLocalization();
-  const navigation =
-    useNavigation<BottomTabNavigationProp<MainTabParamList>>();
-  const { width } = useWindowDimensions();
-  const copy = React.useMemo(() => getDesktopCopy(language), [language]);
-  const isWideLayout = width >= WIDE_LAYOUT_BREAKPOINT;
-  const isStickyRail = width >= STICKY_RAIL_BREAKPOINT;
-  const [logoutLoading, setLogoutLoading] = React.useState(false);
-  const [loadingProfile, setLoadingProfile] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
-  const [markingAllRead, setMarkingAllRead] = React.useState(false);
-  const [role, setRole] = React.useState('user');
-  const [email, setEmail] = React.useState<string | null>(user?.email ?? null);
-  const [xp, setXp] = React.useState(0);
-  const [subscription, setSubscription] = React.useState<UserSubscription | null>(null);
-  const [username, setUsername] = React.useState('');
-  const [bio, setBio] = React.useState('');
-  const [draftLanguage, setDraftLanguage] = React.useState<AppLanguage>('en');
-  const [privacyMode, setPrivacyMode] = React.useState(false);
-  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = React.useState(true);
-  const [marketingEmailsEnabled, setMarketingEmailsEnabled] = React.useState(false);
-  const [posts, setPosts] = React.useState<SpotPost[]>([]);
-  const [favoritePostIds, setFavoritePostIds] = React.useState<string[]>([]);
-  const [commentCountsByPostId, setCommentCountsByPostId] = React.useState<Record<string, number>>({});
-  const [likeCountsByPostId, setLikeCountsByPostId] = React.useState<Record<string, number>>({});
-  const [notifications, setNotifications] = React.useState<AppNotification[]>([]);
-  const [readingNotificationId, setReadingNotificationId] = React.useState<string | null>(null);
-  const [reports, setReports] = React.useState<ModerationReport[]>([]);
-  const [reviewingReportId, setReviewingReportId] = React.useState<string | null>(null);
-  const [organizationUserId, setOrganizationUserId] = React.useState('');
-  const [organizationLoading, setOrganizationLoading] = React.useState(false);
-  const [planTargetUserId, setPlanTargetUserId] = React.useState('');
-  const [planLevel, setPlanLevel] = React.useState<PlanLevel>('free');
-  const [planStatus, setPlanStatus] = React.useState<PlanStatus>('active');
-  const [planLoading, setPlanLoading] = React.useState(false);
-  const [analytics, setAnalytics] = React.useState<AdminAnalyticsSnapshot | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = React.useState(false);
-  const [accountDataIssue, setAccountDataIssue] = React.useState<string | null>(null);
+  const copy = React.useMemo(() => getCopy(language), [language]);
+  const textAlign = getTextAlign();
+
+  const [loading, setLoading] = React.useState(true);
+  const [setupIssue, setSetupIssue] = React.useState<string | null>(null);
   const [refreshToken, setRefreshToken] = React.useState(0);
 
-  const handleAccountDataIssue = React.useCallback(
+  const [username, setUsername] = React.useState('');
+  const [email, setEmail] = React.useState('');
+  const [bio, setBio] = React.useState('');
+  const [privacyMode, setPrivacyMode] = React.useState(false);
+  const [emailNotifications, setEmailNotifications] = React.useState(true);
+  const [marketingEmails, setMarketingEmails] = React.useState(false);
+  const [languageValue, setLanguageValue] = React.useState<AppLanguage>(language);
+  const [role, setRole] = React.useState<UserRole>('user');
+  const [profileXp, setProfileXp] = React.useState(0);
+  const [subscription, setSubscription] = React.useState<UserSubscription | null>(null);
+  const [favoritePostIds, setFavoritePostIds] = React.useState<string[]>([]);
+  const [posts, setPosts] = React.useState<SpotPost[]>([]);
+  const [notifications, setNotifications] = React.useState<AppNotification[]>([]);
+  const [savingSettings, setSavingSettings] = React.useState(false);
+  const [signingOut, setSigningOut] = React.useState(false);
+
+  React.useEffect(() => {
+    setLanguageValue(language);
+  }, [language]);
+
+  const handleSetupIssue = React.useCallback(
     (error: unknown, fallbackMessage: string) => {
       const nextMessage = isDataAccessBlockedError(error)
-        ? getBlockedDataMessage('one or more Profile data feeds')
+        ? getBlockedDataMessage(language === 'ar' ? 'بيانات الحساب' : 'profile data')
         : getErrorMessage(error, fallbackMessage);
 
-      setAccountDataIssue(current => current ?? nextMessage);
+      setSetupIssue(current => current ?? nextMessage);
     },
-    []
+    [language]
   );
 
   React.useEffect(() => {
-    const unsubscribe = observeFavoritePostIds(
-      user?.id,
-      setFavoritePostIds,
+    setLoading(true);
+    setSetupIssue(null);
+
+    if (!user) {
+      setUsername(copy.defaultUsername);
+      setEmail('');
+      setBio('');
+      setRole('user');
+      setProfileXp(0);
+      setLoading(false);
+      return undefined;
+    }
+
+    const unsubscribeProfile = observeCurrentUserProfile(
+      { user },
+      profile => {
+        setUsername(profile.username || copy.defaultUsername);
+        setEmail(profile.email || user.email || '');
+        setBio(profile.bio || '');
+        setPrivacyMode(profile.privacyMode);
+        setLanguageValue(profile.language);
+        setRole(profile.role);
+        setProfileXp(profile.xp ?? 0);
+        setEmailNotifications(profile.emailNotifications);
+        setMarketingEmails(profile.marketingEmails);
+        setLoading(false);
+      },
       error => {
-        handleAccountDataIssue(error, 'Failed to load favorites.');
+        handleSetupIssue(error, 'Failed to load your profile.');
+        setLoading(false);
       }
     );
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken, user?.id]);
 
-  React.useEffect(() => {
-    const unsubscribe = observeCommentCountsByPost(
-      setCommentCountsByPostId,
-      error => {
-        handleAccountDataIssue(error, 'Failed to load comment counts.');
-      }
-    );
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeLikeCountsByPost(
-      setLikeCountsByPostId,
-      error => {
-        handleAccountDataIssue(error, 'Failed to load like counts.');
-      }
-    );
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeNotifications(
-      user?.id,
-      setNotifications,
-      error => {
-        handleAccountDataIssue(error, 'Failed to load notifications.');
-      }
-    );
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken, user?.id]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeUserSubscription(
-      user?.id,
+    const unsubscribeSubscription = observeUserSubscription(
+      user.id,
       nextSubscription => {
         setSubscription(nextSubscription.userId ? nextSubscription : null);
       },
       error => {
-        handleAccountDataIssue(error, 'Failed to load subscription details.');
+        handleSetupIssue(error, 'Failed to load your subscription.');
       }
     );
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken, user?.id]);
 
-  React.useEffect(() => {
-    const unsubscribe = observeReports(
-      role,
-      setReports,
+    const unsubscribeFavorites = observeFavoritePostIds(
+      user.id,
+      ids => {
+        setFavoritePostIds(ids);
+      },
       error => {
-        handleAccountDataIssue(error, 'Failed to load reports.');
+        handleSetupIssue(error, 'Failed to load your saved spots.');
       }
     );
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken, role]);
 
-  React.useEffect(() => {
-    const unsubscribe = subscribeToPosts(setPosts, error => {
-      handleAccountDataIssue(error, 'Failed to load saved posts.');
-    });
-    return unsubscribe;
-  }, [handleAccountDataIssue, refreshToken]);
+    const unsubscribePosts = subscribeToPosts(
+      nextPosts => {
+        setPosts(nextPosts);
+      },
+      error => {
+        handleSetupIssue(error, 'Failed to load recent spots.');
+      }
+    );
 
-  React.useEffect(() => {
-    if (!user) {
-      setLoadingProfile(false);
-      setUsername(copy.fallbackName);
-      setEmail(copy.fallbackEmail);
-      setDraftLanguage(language);
-      return;
-    }
+    const unsubscribeNotifications = observeNotifications(
+      user.id,
+      nextNotifications => {
+        setNotifications(nextNotifications);
+      },
+      error => {
+        handleSetupIssue(error, 'Failed to load notifications.');
+      }
+    );
 
-    setLoadingProfile(true);
-    let unsubscribe: () => void = () => {};
+    return () => {
+      unsubscribeProfile();
+      unsubscribeSubscription();
+      unsubscribeFavorites();
+      unsubscribePosts();
+      unsubscribeNotifications();
+    };
+  }, [copy.defaultUsername, handleSetupIssue, refreshToken, user]);
 
-    try {
-      unsubscribe = observeCurrentUserProfile(
-        { user },
-        profile => {
-          setEmail(profile.email);
-          setRole(profile.role);
-          setXp(profile.xp);
-          setUsername(profile.username);
-          setBio(profile.bio);
-          setDraftLanguage(profile.language);
-          setPrivacyMode(profile.privacyMode);
-          setLoadingProfile(false);
-        },
-        error => {
-          handleAccountDataIssue(error, 'Failed to load profile details.');
-          setLoadingProfile(false);
-        }
-      );
-    } catch (error: any) {
-      handleAccountDataIssue(error, 'Failed to load profile details.');
-      setLoadingProfile(false);
-    }
-
-    return unsubscribe;
-  }, [copy.fallbackEmail, copy.fallbackName, handleAccountDataIssue, language, refreshToken, user]);
-
-  const favoritePosts = React.useMemo(() => {
+  const savedSpots = React.useMemo<SavedSpotPreview[]>(() => {
     const favoriteSet = new Set(favoritePostIds);
-    return posts.filter(post => favoriteSet.has(post.id));
-  }, [favoritePostIds, posts]);
 
-  const savedSpotItems = React.useMemo(
-    () =>
-      uniqueSpotItemsByPlace(
-        buildDiscoverySpotItems(favoritePosts, {
-          commentCountsByPostId,
-          likeCountsByPostId,
-          favoritePostIds,
-        })
-      ),
-    [commentCountsByPostId, favoritePostIds, favoritePosts, likeCountsByPostId]
-  );
+    const discoverySpots = buildDiscoverySpotItems(posts, {
+      favoritePostIds,
+      searchQuery: '',
+      language,
+    });
 
-  const unreadNotificationsCount = React.useMemo(
-    () => notifications.filter(notification => !notification.isRead).length,
+    return uniqueSpotItemsByPlace(
+      discoverySpots.filter(spot => favoriteSet.has(spot.postId))
+    )
+      .slice(0, 3)
+      .map(spot => ({
+        id: spot.postId,
+        title: spot.title,
+        image: spot.hero.imageUrl || SAVED_SPOT_FALLBACK_IMAGE,
+        meta: `${spot.locationLabel} - ${spot.categoryLabel}`,
+        description: spot.summary || spot.description,
+        savedAgo: formatRecencyLabel(spot.rawPost.createdAt, copy),
+      }));
+  }, [copy, favoritePostIds, language, posts]);
+
+  const unreadCount = React.useMemo(
+    () => notifications.filter(item => !item.isRead).length,
     [notifications]
   );
 
-  const handleRetryAccountData = React.useCallback(() => {
-    setAccountDataIssue(null);
-    setLoadingProfile(true);
-    setRefreshToken(current => current + 1);
-  }, []);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await saveCurrentUserProfile({
-        userId: user?.id,
-        username,
-        bio,
-        language: draftLanguage,
-        privacyMode,
-      });
-      await setLanguagePreference(draftLanguage);
-      showAlert(t('profile.savedAlertTitle'), t('profile.savedAlertBody'));
-    } catch (error: any) {
-      if (error instanceof ProfileValidationError) {
-        showAlert(t('profile.profileValidationTitle'), error.message);
-      } else {
-        showAlert(t('profile.saveErrorTitle'), error?.message ?? 'Failed to update profile');
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    setLogoutLoading(true);
-    try {
-      await logoutUser();
-    } catch (error: any) {
-      showAlert(t('profile.logoutErrorTitle'), error?.message ?? 'Something went wrong');
-    } finally {
-      setLogoutLoading(false);
-    }
-  };
-
-  const handleMarkNotificationRead = async (notificationId: string) => {
-    setReadingNotificationId(notificationId);
-    try {
-      await markUserNotificationRead(user?.id, notificationId);
-    } catch (error: any) {
-      if (error instanceof NotificationValidationError) {
-        showAlert(t('profile.notificationErrorTitle'), error.message);
-      } else {
-        showAlert(t('profile.notificationErrorTitle'), error?.message ?? 'Failed to update notification');
-      }
-    } finally {
-      setReadingNotificationId(null);
-    }
-  };
-
-  const handleMarkAllRead = async () => {
-    const unreadIds = notifications.filter(item => !item.isRead).map(item => item.id);
-    if (unreadIds.length === 0) {
-      return;
-    }
-
-    setMarkingAllRead(true);
-    try {
-      await Promise.all(unreadIds.map(id => markUserNotificationRead(user?.id, id)));
-      showAlert(t('common.updated'), copy.readAllDone);
-    } catch (error: any) {
-      if (error instanceof NotificationValidationError) {
-        showAlert(t('profile.notificationErrorTitle'), error.message);
-      } else {
-        showAlert(t('profile.notificationErrorTitle'), error?.message ?? 'Failed to update notifications');
-      }
-    } finally {
-      setMarkingAllRead(false);
-    }
-  };
-
-  const activityEntries = React.useMemo<ActivityEntry[]>(() => {
-    const notificationEntries = notifications.slice(0, 4).map(notification => ({
-      id: `notification-${notification.id}`,
-      kind:
-        notification.type === 'comment_on_post'
-          ? ('comment' as const)
-          : ('like' as const),
-      title: notification.message,
-      subtitle:
-        notification.type === 'comment_on_post'
-          ? `${notification.actorLabel}  •  ${copy.commentSubtitle}`
-          : `${notification.actorLabel}  •  ${copy.likeSubtitle}`,
-      timestampLabel:
-        formatRelativeTime(getTimestampMs(notification.createdAt)) ||
-        t('common.pendingTimestamp'),
-      unread: !notification.isRead,
-      onPress: notification.isRead
-        ? undefined
-        : () => {
-            void handleMarkNotificationRead(notification.id);
-          },
+  const activityItems = React.useMemo<ActivityPreview[]>(() => {
+    return notifications.slice(0, 5).map((item, index) => ({
+      id: item.id,
+      type: item.type === 'like_on_post' ? 'heart' : 'chatbox',
+      title: item.message || (item.type === 'like_on_post' ? copy.activityLike : copy.activityComment),
+      meta: item.actorLabel || item.postId,
+      time: formatRecencyLabel(item.createdAt, copy),
+      imageUrl: ACTIVITY_IMAGES[index % ACTIVITY_IMAGES.length],
+      notificationId: item.id,
+      unread: !item.isRead,
     }));
+  }, [copy, notifications]);
 
-    if (notificationEntries.length >= 3) {
-      return notificationEntries.slice(0, 3);
-    }
-
-    const saveEntries = savedSpotItems
-      .slice(0, Math.max(0, 3 - notificationEntries.length))
-      .map(spot => ({
-        id: `save-${spot.id}`,
-        kind: 'save' as const,
-        title: `${copy.savedActivityPrefix} ${spot.title}`,
-        subtitle: `${spot.categoryLabel}  •  ${spot.areaLabel}`,
-        timestampLabel: spot.updatedLabel,
-      }));
-
-    return [...notificationEntries, ...saveEntries].slice(0, 3);
-  }, [
-    copy.commentSubtitle,
-    copy.likeSubtitle,
-    copy.savedActivityPrefix,
-    notifications,
-    savedSpotItems,
-    t,
-  ]);
-
-  const handleReportStatusChange = async (reportId: string, status: ReportStatus) => {
-    setReviewingReportId(reportId);
-    try {
-      await reviewReportStatus({ role, reportId, status });
-    } catch (error: any) {
-      if (error instanceof ModerationValidationError) {
-        showAlert(t('profile.moderationErrorTitle'), error.message);
-      } else {
-        showAlert(t('profile.moderationErrorTitle'), error?.message ?? 'Failed to update report');
-      }
-    } finally {
-      setReviewingReportId(null);
-    }
-  };
-
-  const handleHideReportedTarget = async (report: ModerationReport) => {
-    setReviewingReportId(report.id);
-    try {
-      await hideReportedTarget({ role, report });
-    } catch (error: any) {
-      if (error instanceof ModerationValidationError) {
-        showAlert(t('profile.moderationErrorTitle'), error.message);
-      } else {
-        showAlert(t('profile.moderationErrorTitle'), error?.message ?? 'Failed to hide content');
-      }
-    } finally {
-      setReviewingReportId(null);
-    }
-  };
-
-  const handleMarkOrganization = async () => {
-    setOrganizationLoading(true);
-    try {
-      await markUserAsOrganization({
-        adminRole: role,
-        targetUserId: organizationUserId,
-      });
-      setOrganizationUserId('');
-      showAlert(t('profile.organizationUpdatedTitle'), t('profile.organizationUpdatedBody'));
-    } catch (error: any) {
-      if (error instanceof OrganizationValidationError) {
-        showAlert(t('profile.organizationErrorTitle'), error.message);
-      } else {
-        showAlert(t('profile.organizationErrorTitle'), error?.message ?? 'Failed to update account role');
-      }
-    } finally {
-      setOrganizationLoading(false);
-    }
-  };
-
-  const handleUpdatePlan = async () => {
-    setPlanLoading(true);
-    try {
-      await updateUserPlan({
-        adminRole: role,
-        targetUserId: planTargetUserId,
-        planLevel,
-        status: planStatus,
-      });
-      setPlanTargetUserId('');
-      showAlert(t('common.updated'), t('profile.planUpdatedBody'));
-    } catch (error: any) {
-      if (error instanceof SubscriptionValidationError) {
-        showAlert(t('profile.planErrorTitle'), error.message);
-      } else {
-        showAlert(t('profile.planErrorTitle'), error?.message ?? 'Failed to update plan');
-      }
-    } finally {
-      setPlanLoading(false);
-    }
-  };
-
-  const handleLoadAnalytics = React.useCallback(async () => {
-    setAnalyticsLoading(true);
-    try {
-      const nextAnalytics = await getAdminAnalytics(role);
-      setAnalytics(nextAnalytics);
-    } catch (error: any) {
-      if (error instanceof AnalyticsValidationError) {
-        showAlert(t('profile.analyticsErrorTitle'), error.message);
-      } else {
-        showAlert(t('profile.analyticsErrorTitle'), error?.message ?? 'Failed to load analytics');
-      }
-    } finally {
-      setAnalyticsLoading(false);
-    }
-  }, [role, t]);
-
-  React.useEffect(() => {
-    if (role !== 'admin') {
-      setAnalytics(null);
-      return;
-    }
-
-    void handleLoadAnalytics();
-  }, [handleLoadAnalytics, role]);
-
-  const openExplore = React.useCallback(() => {
-    navigation.navigate('Explore');
-  }, [navigation]);
-
-  const avatarLabel = (username || user?.displayInfo || copy.fallbackName).trim();
-  const displayEmail = email || user?.email || copy.fallbackEmail;
-  const profileName = avatarLabel || copy.fallbackName;
+  const displayName = username || copy.defaultUsername;
+  const displayEmail = email || user?.email || '';
+  const roleLabel = getRoleLabel(role);
   const planLabel = getPlanLevelLabel(subscription?.planLevel ?? 'free');
   const planStatusLabel = getPlanStatusLabel(subscription?.status ?? 'inactive');
-  const stickyRailStyle =
-    isWideLayout && isStickyRail
-      ? ({ position: 'sticky', top: 96, alignSelf: 'flex-start' } as unknown as object)
-      : null;
+  const languageLabel = languageValue === 'ar' ? copy.languageArabic : copy.languageEnglish;
 
-  if (loadingProfile) {
-    return <LoadingState label={t('profile.title')} />;
+  const handleRetry = React.useCallback(() => {
+    setSetupIssue(null);
+    setRefreshToken(value => value + 1);
+  }, []);
+
+  const handleAreaSummary = React.useCallback(() => {
+    const summary =
+      language === 'ar'
+        ? `لديك ${favoritePostIds.length} أماكن محفوظة و ${unreadCount} إشعارات غير مقروءة.`
+        : `You have ${favoritePostIds.length} saved spots and ${unreadCount} unread notifications.`;
+    showAlert(copy.areaSummary, summary);
+  }, [copy.areaSummary, favoritePostIds.length, language, unreadCount]);
+
+  const handleToggleLanguage = React.useCallback(() => {
+    const nextLanguage = languageValue === 'en' ? 'ar' : 'en';
+    setLanguageValue(nextLanguage);
+  }, [languageValue]);
+
+  const handleSaveSettings = React.useCallback(async () => {
+    if (!user) {
+      showAlert(language === 'ar' ? 'تسجيل الدخول مطلوب' : 'Sign-in required');
+      return;
+    }
+
+    setSavingSettings(true);
+
+    try {
+      await saveCurrentUserProfile({
+        userId: user.id,
+        username: username.trim() || copy.defaultUsername,
+        bio: bio.trim(),
+        language: languageValue,
+        privacyMode,
+        emailNotifications,
+        marketingEmails,
+      });
+      await setLanguagePreference(languageValue);
+
+      showAlert(copy.savedAlert, copy.savedAlertBody);
+    } catch (error) {
+      if (error instanceof ProfileValidationError) {
+        showAlert(language === 'ar' ? 'تعذر الحفظ' : 'Could not save settings', error.message);
+      } else {
+        showAlert(
+          language === 'ar' ? 'تعذر الحفظ' : 'Could not save settings',
+          isDataAccessBlockedError(error)
+            ? getBlockedDataMessage(language === 'ar' ? 'إعدادات الحساب' : 'account settings')
+            : getErrorMessage(error, 'Unable to save settings right now.')
+        );
+      }
+    } finally {
+      setSavingSettings(false);
+    }
+  }, [
+    bio,
+    copy.defaultUsername,
+    copy.savedAlert,
+    copy.savedAlertBody,
+    emailNotifications,
+    language,
+    languageValue,
+    marketingEmails,
+    privacyMode,
+    setLanguagePreference,
+    user,
+    username,
+  ]);
+
+  const handleSignOut = React.useCallback(async () => {
+    setSigningOut(true);
+
+    try {
+      await logoutUser();
+    } catch (error) {
+      showAlert(
+        language === 'ar' ? 'تعذر تسجيل الخروج' : 'Could not sign out',
+        getErrorMessage(error, language === 'ar' ? 'حاول مجددا.' : 'Please try again.')
+      );
+    } finally {
+      setSigningOut(false);
+    }
+  }, [language]);
+
+  const handleMarkActivityRead = React.useCallback(
+    async (activity: ActivityPreview) => {
+      if (!user?.id || !activity.notificationId || !activity.unread) {
+        return;
+      }
+
+      try {
+        await markUserNotificationRead(user.id, activity.notificationId);
+      } catch (error) {
+        const message =
+          error instanceof NotificationValidationError
+            ? error.message
+            : isDataAccessBlockedError(error)
+              ? getBlockedDataMessage(language === 'ar' ? 'الإشعارات' : 'notifications')
+              : getErrorMessage(error, 'Unable to update notification right now.');
+        showAlert(language === 'ar' ? 'تعذر تحديث الإشعار' : 'Could not update notification', message);
+      }
+    },
+    [language, user?.id]
+  );
+
+  if (loading) {
+    return <LoadingState label={language === 'ar' ? 'الحساب' : 'Profile'} />;
   }
 
   return (
-    <ScreenContainer scroll padded={false} contentContainerStyle={styles.page}>
-      <View style={styles.pageShell}>
-        <View style={styles.toolbarRow}>
-          <View style={styles.toolbarSpacer} />
-          <View style={styles.toolbarActions}>
-            <ToolbarButton onPress={openExplore} filled />
-            <ToolbarButton label={copy.toolbarAreaSummary} onPress={openExplore} />
-            <ToolbarButton label={copy.toolbarNearMe} onPress={openExplore} />
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={styles.pageContent}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={[styles.container, { direction: isRTL ? 'rtl' : 'ltr' }]}>
+        <View style={styles.topUtilityRow}>
+          <View style={styles.topUtilitySpacer} />
+
+          <View style={styles.topUtilityActions}>
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.searchSquare, pressed && styles.pressed]}
+              onPress={() => navigation.navigate('Explore', { focusSearch: true })}
+            >
+              <Ionicons name="search-outline" size={24} color="#FFFFFF" />
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.utilityPill, pressed && styles.pressed]}
+              onPress={handleAreaSummary}
+            >
+              <Ionicons name="location-outline" size={18} color="#4E453F" />
+              <Text style={styles.utilityPillText}>{copy.areaSummary}</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.utilityPill, pressed && styles.pressed]}
+              onPress={() => navigation.navigate('Explore', { where: copy.nearMe })}
+            >
+              <Ionicons name="paper-plane-outline" size={18} color="#4E453F" />
+              <Text style={styles.utilityPillText}>{copy.nearMe}</Text>
+            </Pressable>
           </View>
         </View>
 
-        {accountDataIssue ? (
+        {setupIssue ? (
           <StatusBanner
             compact
             tone="warning"
-            title={t('profile.issueTitle')}
-            body={t('profile.issueBody')}
+            title={copy.profileIssueTitle}
+            body={setupIssue}
             actions={[
               {
-                label: t('common.retry'),
-                onPress: handleRetryAccountData,
+                label: copy.retry,
                 tone: 'primary',
+                onPress: handleRetry,
               },
             ]}
           />
         ) : null}
 
-        <Card style={styles.heroCard}>
-          <View style={[styles.heroRow, !isWideLayout && styles.heroRowStack]}>
+        <View style={styles.heroCard}>
+          <View style={styles.heroLeft}>
+            <Image source={{ uri: AVATAR }} style={styles.avatar} />
+
             <View style={styles.heroIdentity}>
-              <View style={styles.avatarFrame}>
-                <Image source={{ uri: FALLBACK_AVATAR_URI }} style={styles.avatarImage} />
-              </View>
-              <View style={styles.heroCopy}>
-                <Text
-                  style={[
-                    styles.heroName,
-                    { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                  ]}
-                >
-                  {profileName}
-                </Text>
-                <Text
-                  style={[
-                    styles.heroEmail,
-                    { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                  ]}
-                >
-                  {displayEmail}
-                </Text>
-                <View style={[styles.heroBadgeRow, { flexDirection: getRowDirection() }]}>
-                  <View style={styles.heroBadge}>
-                    <Text style={styles.heroBadgeLabel}>{`${copy.roleBadge}: ${getRoleLabel(role)}`}</Text>
-                  </View>
-                  <View style={[styles.heroBadge, styles.heroBadgePlan]}>
-                    <Text style={[styles.heroBadgeLabel, styles.heroBadgeLabelPlan]}>
-                      {`${copy.planBadge}: ${planLabel}`}
-                    </Text>
-                  </View>
+              <Text
+                style={[
+                  styles.heroName,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {displayName}
+              </Text>
+              <Text style={styles.heroEmail}>{displayEmail || copy.defaultUsername}</Text>
+
+              <View style={styles.badgeRow}>
+                <View style={styles.roleBadge}>
+                  <Text style={styles.roleBadgeText}>{copy.role}: {roleLabel}</Text>
+                </View>
+
+                <View style={styles.planBadge}>
+                  <Text style={styles.planBadgeText}>{copy.plan}: {planLabel}</Text>
                 </View>
               </View>
             </View>
+          </View>
 
-            <View style={[styles.heroStatsRow, !isWideLayout && styles.heroStatsRowStack]}>
-              <HeroStat
-                accent="xp"
-                label={copy.xpLabel}
-                value={String(xp)}
-                subtitle={copy.xpHint}
-              />
-              <View style={styles.heroStatDivider} />
-              <HeroStat
-                accent="saves"
-                label={copy.savesLabel}
-                value={String(savedSpotItems.length)}
-                subtitle={copy.savesHint}
-              />
-              <View style={styles.heroStatDivider} />
-              <HeroStat
-                accent="unread"
-                label={copy.unreadLabel}
-                value={String(unreadNotificationsCount)}
-                subtitle={copy.unreadHint}
-              />
+          <View style={styles.heroStats}>
+            <View style={styles.heroStat}>
+              <View style={[styles.heroStatIconWrap, styles.heroStatSoftRed]}>
+                <Ionicons name="star-outline" size={22} color="#F55445" />
+              </View>
+              <View>
+                <Text style={styles.heroStatValue}>{profileXp}</Text>
+                <Text style={styles.heroStatLabel}>{copy.xp}</Text>
+                <Text style={styles.heroStatSub}>{copy.keepExploring}</Text>
+              </View>
             </View>
-          </View>
-        </Card>
 
-        <View style={[styles.mainGrid, isWideLayout && styles.mainGridWide]}>
-          <View style={styles.leftColumn}>
-            <Card style={styles.moduleCard}>
-              <SectionHeader
-                title={copy.savedSpotsTitle}
-                actionLabel={copy.savedSpotsAction}
-                iconTone="saved"
-                onActionPress={openExplore}
-              />
+            <View style={styles.heroDivider} />
 
-              {savedSpotItems.length === 0 ? (
-                <View style={styles.compactEmptyState}>
-                  <Text style={styles.compactEmptyTitle}>{copy.savedEmptyTitle}</Text>
-                  <Text style={styles.compactEmptySubtitle}>{copy.savedEmptySubtitle}</Text>
-                </View>
-              ) : (
-                <View style={styles.savedList}>
-                  {savedSpotItems.slice(0, 3).map(spot => (
-                    <SavedSpotRow
-                      key={spot.id}
-                      copy={copy}
-                      spot={spot}
-                      onPress={openExplore}
-                    />
-                  ))}
-                </View>
-              )}
-            </Card>
-
-            <Card style={styles.moduleCard}>
-              <SectionHeader
-                title={copy.recentActivityTitle}
-                actionLabel={copy.recentActivityAction}
-                iconTone="activity"
-                onActionPress={openExplore}
-              />
-
-              {activityEntries.length === 0 ? (
-                <View style={styles.compactEmptyState}>
-                  <Text style={styles.compactEmptyTitle}>{copy.activityEmptyTitle}</Text>
-                  <Text style={styles.compactEmptySubtitle}>{copy.activityEmptySubtitle}</Text>
-                </View>
-              ) : (
-                <View style={styles.activityList}>
-                  {activityEntries.map(entry => (
-                    <ActivityRow key={entry.id} entry={entry} />
-                  ))}
-                  {readingNotificationId ? (
-                    <Text style={styles.inlineStatusText}>{t('profile.updating')}</Text>
-                  ) : null}
-                </View>
-              )}
-            </Card>
-          </View>
-
-          <View style={[styles.rightColumn, stickyRailStyle]}>
-            <Card style={styles.settingsCard}>
-              <SectionHeader
-                title={copy.settingsTitle}
-                iconTone="settings"
-              />
-              <Text style={styles.settingsSubtitle}>{copy.settingsSubtitle}</Text>
-
-              {!user ? (
-                <StatusBanner
-                  compact
-                  tone="warning"
-                  title={copy.signInRequiredTitle}
-                  body={copy.signInRequiredBody}
-                />
-              ) : null}
-
-              <View style={styles.settingRow}>
-                <Text style={styles.settingRowLabel}>{copy.usernameLabel}</Text>
-                <View style={styles.settingRowField}>
-                  <TextInput
-                    value={username}
-                    onChangeText={setUsername}
-                    placeholder={copy.usernameLabel}
-                    placeholderTextColor={colors.textSubtle}
-                    style={styles.settingInput}
-                  />
-                </View>
+            <View style={styles.heroStat}>
+              <View style={[styles.heroStatIconWrap, styles.heroStatSoftGreen]}>
+                <Ionicons name="bookmark-outline" size={22} color="#70913C" />
               </View>
-
-              <View style={styles.settingRow}>
-                <Text style={styles.settingRowLabel}>{copy.emailLabel}</Text>
-                <View style={styles.settingRowField}>
-                  <Text style={styles.settingValueText}>{displayEmail}</Text>
-                </View>
+              <View>
+                <Text style={styles.heroStatValue}>{favoritePostIds.length}</Text>
+                <Text style={styles.heroStatLabel}>{copy.saves}</Text>
+                <Text style={styles.heroStatSub}>{copy.savedPlaces}</Text>
               </View>
+            </View>
 
-              <View style={styles.settingRow}>
-                <Text style={styles.settingRowLabel}>{copy.planLabel}</Text>
-                <View style={[styles.settingRowField, styles.settingRowFieldInline]}>
-                  <SettingValuePill label={planLabel} tone="success" />
-                  <Text style={styles.settingSupportText}>{planStatusLabel}</Text>
-                </View>
-              </View>
+            <View style={styles.heroDivider} />
 
-              <View style={styles.settingRow}>
-                <Text style={styles.settingRowLabel}>{copy.languageLabel}</Text>
-                <View style={[styles.settingRowField, styles.languageToggleRow]}>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => setDraftLanguage('en')}
-                    style={({ pressed }) => [
-                      styles.languageOption,
-                      draftLanguage === 'en' && styles.languageOptionActive,
-                      pressed && styles.pressedState,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.languageOptionLabel,
-                        draftLanguage === 'en' && styles.languageOptionLabelActive,
-                      ]}
-                    >
-                      English
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => setDraftLanguage('ar')}
-                    style={({ pressed }) => [
-                      styles.languageOption,
-                      draftLanguage === 'ar' && styles.languageOptionActive,
-                      pressed && styles.pressedState,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.languageOptionLabel,
-                        draftLanguage === 'ar' && styles.languageOptionLabelActive,
-                      ]}
-                    >
-                      العربية
-                    </Text>
-                  </Pressable>
-                </View>
+            <View style={styles.heroStat}>
+              <View style={[styles.heroStatIconWrap, styles.heroStatSoftBlue]}>
+                <Ionicons name="notifications-outline" size={22} color="#4E8CE3" />
               </View>
-
-              <View style={styles.settingRow}>
-                <Text style={styles.settingRowLabel}>{copy.privacyLabel}</Text>
-                <View style={[styles.settingRowField, styles.settingRowFieldSwitch]}>
-                  <View style={styles.settingRowFieldCopy}>
-                    <Text style={styles.settingSupportText}>{copy.privacyHint}</Text>
-                  </View>
-                  <Switch value={privacyMode} onValueChange={setPrivacyMode} />
-                </View>
+              <View>
+                <Text style={styles.heroStatValue}>{unreadCount}</Text>
+                <Text style={styles.heroStatLabel}>{copy.unread}</Text>
+                <Text style={styles.heroStatSub}>{copy.newNotifications}</Text>
               </View>
-
-              <View style={[styles.settingRow, styles.settingRowBio]}>
-                <Text style={styles.settingRowLabel}>{copy.bioLabel}</Text>
-                <View style={styles.settingRowField}>
-                  <TextInput
-                    value={bio}
-                    onChangeText={setBio}
-                    placeholder={copy.bioLabel}
-                    placeholderTextColor={colors.textSubtle}
-                    multiline
-                    style={[styles.settingInput, styles.settingTextarea]}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.preferenceCard}>
-                <Text style={styles.preferenceCardTitle}>{copy.preferencesTitle}</Text>
-                <InlinePreferenceRow
-                  title={copy.emailNotifications}
-                  subtitle={copy.emailNotificationsHint}
-                  right={
-                    <Switch
-                      value={emailNotificationsEnabled}
-                      onValueChange={setEmailNotificationsEnabled}
-                    />
-                  }
-                />
-                <InlinePreferenceRow
-                  title={copy.marketingEmails}
-                  subtitle={copy.marketingEmailsHint}
-                  right={
-                    <Switch
-                      value={marketingEmailsEnabled}
-                      onValueChange={setMarketingEmailsEnabled}
-                    />
-                  }
-                />
-                <InlinePreferenceRow
-                  title={copy.unreadNotifications}
-                  subtitle={copy.unreadNotificationsHint}
-                  noBorder
-                  right={
-                    <View style={styles.preferenceUnreadWrap}>
-                      <View style={styles.preferenceUnreadBadge}>
-                        <Text style={styles.preferenceUnreadBadgeLabel}>
-                          {String(unreadNotificationsCount)}
-                        </Text>
-                      </View>
-                      {unreadNotificationsCount > 0 ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={handleMarkAllRead}
-                          style={({ pressed }) => [
-                            styles.preferenceInlineAction,
-                            pressed && styles.pressedState,
-                          ]}
-                        >
-                          {markingAllRead ? (
-                            <ActivityIndicator color={colors.primaryPressed} size="small" />
-                          ) : (
-                            <Text style={styles.preferenceInlineActionLabel}>
-                              {copy.markAllRead}
-                            </Text>
-                          )}
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  }
-                />
-              </View>
-
-              <View style={styles.settingsButtonRow}>
-                <PrimaryButton
-                  label={copy.saveSettings}
-                  loading={saving}
-                  disabled={!user}
-                  onPress={handleSave}
-                  style={styles.primaryActionButton}
-                />
-                <SecondaryButton
-                  label={logoutLoading ? copy.signingOut : copy.signOut}
-                  disabled={!user || logoutLoading}
-                  onPress={handleLogout}
-                  style={styles.secondaryActionButton}
-                />
-              </View>
-            </Card>
+            </View>
           </View>
         </View>
 
-        {role === 'admin' ? (
-          <Card style={styles.adminCard}>
-            <View style={styles.adminHeader}>
-              <Text style={styles.adminTitle}>{copy.adminTitle}</Text>
-              <Text style={styles.adminSubtitle}>{copy.adminSubtitle}</Text>
+        <View style={styles.productPanels}>
+          <LeaderboardPanel />
+          <AdminConsolePanel role={role} />
+        </View>
+
+        <View style={styles.mainGrid}>
+          <View style={styles.leftColumn}>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionHeaderLeft}>
+                  <Ionicons name="bookmark-outline" size={20} color="#6F655F" />
+                  <Text style={styles.sectionTitle}>{copy.savedSpots}</Text>
+                </View>
+
+                <Pressable onPress={() => navigation.navigate('Explore')}>
+                  <Text style={styles.viewAll}>{copy.viewAllSaves}</Text>
+                </Pressable>
+              </View>
+
+              {savedSpots.length === 0 ? (
+                <View style={styles.emptyPanel}>
+                  <Text style={styles.emptyTitle}>{copy.noSavedTitle}</Text>
+                  <Text style={styles.emptyBody}>{copy.noSavedBody}</Text>
+                </View>
+              ) : (
+                <View style={styles.savedList}>
+                  {savedSpots.map(item => (
+                    <Pressable
+                      key={item.id}
+                      accessibilityRole="button"
+                      onPress={() => navigation.navigate('Explore', { query: item.title })}
+                      style={({ pressed }) => [styles.savedItem, pressed && styles.pressed]}
+                    >
+                      <Image source={{ uri: item.image }} style={styles.savedImage} />
+
+                      <View style={styles.savedBody}>
+                        <Text style={styles.savedTitle} numberOfLines={1}>{item.title}</Text>
+                        <Text style={styles.savedMeta} numberOfLines={1}>{item.meta}</Text>
+                        <Text style={styles.savedDescription} numberOfLines={1}>{item.description}</Text>
+                      </View>
+
+                      <View style={styles.savedRight}>
+                        <Text style={styles.savedAgo}>{item.savedAgo}</Text>
+                        <View style={styles.savedBookmarkButton}>
+                          <Ionicons name="bookmark" size={16} color="#2F2A26" />
+                        </View>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
 
-            <View style={[styles.adminGrid, isWideLayout && styles.adminGridWide]}>
-              <View style={styles.adminPanel}>
-                <Text style={styles.adminPanelTitle}>{copy.adminAccountsTitle}</Text>
-                <Text style={styles.adminPanelSubtitle}>{copy.adminAccountsSubtitle}</Text>
-                <TextField
-                  label={copy.targetUserId}
-                  placeholder={copy.targetUserId}
-                  value={organizationUserId}
-                  onChangeText={setOrganizationUserId}
-                />
-                <SecondaryButton
-                  label={organizationLoading ? t('profile.updating') : copy.roleUpdateAction}
-                  disabled={organizationLoading}
-                  onPress={handleMarkOrganization}
-                />
-              </View>
-
-              <View style={styles.adminPanel}>
-                <Text style={styles.adminPanelTitle}>{copy.adminPlansTitle}</Text>
-                <Text style={styles.adminPanelSubtitle}>{copy.adminPlansSubtitle}</Text>
-                <TextField
-                  label={copy.targetUserId}
-                  placeholder={copy.targetUserId}
-                  value={planTargetUserId}
-                  onChangeText={setPlanTargetUserId}
-                />
-                <View style={styles.adminChipGroup}>
-                  {(['free', 'organization_basic', 'organization_premium'] as PlanLevel[]).map(item => (
-                    <FilterChip
-                      key={item}
-                      label={getPlanLevelLabel(item)}
-                      compact
-                      active={planLevel === item}
-                      onPress={() => setPlanLevel(item)}
-                    />
-                  ))}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionHeaderLeft}>
+                  <Ionicons name="git-network-outline" size={20} color="#6F655F" />
+                  <Text style={styles.sectionTitle}>{copy.recentActivity}</Text>
                 </View>
-                <View style={styles.adminChipGroup}>
-                  {(['active', 'inactive', 'trial'] as PlanStatus[]).map(item => (
-                    <FilterChip
-                      key={item}
-                      label={getPlanStatusLabel(item)}
-                      compact
-                      active={planStatus === item}
-                      onPress={() => setPlanStatus(item)}
-                    />
-                  ))}
+
+                <Pressable onPress={() => navigation.navigate('Home')}>
+                  <Text style={styles.viewAll}>{copy.viewAllActivity}</Text>
+                </Pressable>
+              </View>
+
+              {activityItems.length === 0 ? (
+                <View style={styles.emptyPanel}>
+                  <Text style={styles.emptyTitle}>{copy.noActivityTitle}</Text>
+                  <Text style={styles.emptyBody}>{copy.noActivityBody}</Text>
                 </View>
-                <SecondaryButton
-                  label={planLoading ? t('profile.updating') : copy.planUpdateAction}
-                  disabled={planLoading}
-                  onPress={handleUpdatePlan}
-                />
-              </View>
-
-              <View style={styles.adminPanel}>
-                <Text style={styles.adminPanelTitle}>{copy.adminAnalyticsTitle}</Text>
-                <Text style={styles.adminPanelSubtitle}>{copy.adminAnalyticsSubtitle}</Text>
-                <SecondaryButton
-                  label={analyticsLoading ? t('profile.refreshingAnalytics') : copy.refreshAnalytics}
-                  disabled={analyticsLoading}
-                  onPress={handleLoadAnalytics}
-                />
-                {analytics ? (
-                  <View style={styles.analyticsMiniGrid}>
-                    <View style={styles.analyticsMiniTile}>
-                      <Text style={styles.analyticsMiniValue}>{analytics.totalUsers}</Text>
-                      <Text style={styles.analyticsMiniLabel}>{copy.analyticsUsers}</Text>
-                    </View>
-                    <View style={styles.analyticsMiniTile}>
-                      <Text style={styles.analyticsMiniValue}>{analytics.totalPosts}</Text>
-                      <Text style={styles.analyticsMiniLabel}>{copy.analyticsPosts}</Text>
-                    </View>
-                    <View style={styles.analyticsMiniTile}>
-                      <Text style={styles.analyticsMiniValue}>{analytics.totalPromotedEvents}</Text>
-                      <Text style={styles.analyticsMiniLabel}>{copy.analyticsEvents}</Text>
-                    </View>
-                    <View style={styles.analyticsMiniTile}>
-                      <Text style={styles.analyticsMiniValue}>{analytics.totalReports}</Text>
-                      <Text style={styles.analyticsMiniLabel}>{copy.analyticsReports}</Text>
-                    </View>
-                  </View>
-                ) : null}
-              </View>
-
-              <View style={[styles.adminPanel, styles.adminPanelWide]}>
-                <Text style={styles.adminPanelTitle}>{copy.adminModerationTitle}</Text>
-                <Text style={styles.adminPanelSubtitle}>{copy.adminModerationSubtitle}</Text>
-                {reports.length === 0 ? (
-                  <View style={styles.compactEmptyState}>
-                    <Text style={styles.compactEmptyTitle}>{copy.adminReportsEmpty}</Text>
-                  </View>
-                ) : (
-                  <View style={styles.reportList}>
-                    {reports.slice(0, 4).map(report => (
-                      <View key={report.id} style={styles.reportCard}>
-                        <Text style={styles.reportTitle}>
-                          {t('profile.reporter', { reporter: report.reporterUserId })}
-                        </Text>
-                        <Text style={styles.reportSubtitle}>
-                          {t('profile.target', {
-                            target: report.targetId,
-                            reason: getReportReasonLabel(report.reason),
-                          })}
-                        </Text>
-                        <Text style={styles.reportMeta}>
-                          {getReportStatusLabel(report.status)}
-                        </Text>
-                        <View style={styles.adminChipGroup}>
-                          {(['open', 'reviewed', 'dismissed', 'action_taken'] as ReportStatus[]).map(status => (
-                            <FilterChip
-                              key={`${report.id}-${status}`}
-                              label={getReportStatusLabel(status)}
-                              compact
-                              active={report.status === status}
-                              disabled={reviewingReportId === report.id}
-                              onPress={() => handleReportStatusChange(report.id, status)}
-                            />
-                          ))}
-                        </View>
-                        <SecondaryButton
-                          label={
-                            reviewingReportId === report.id
-                              ? t('profile.updating')
-                              : copy.hideReportedContent
+              ) : (
+                <View style={styles.activityList}>
+                  {activityItems.map(item => (
+                    <Pressable
+                      key={item.id}
+                      accessibilityRole="button"
+                      onPress={() => void handleMarkActivityRead(item)}
+                      style={({ pressed }) => [styles.activityRow, pressed && styles.pressed]}
+                    >
+                      <View style={styles.activityIconWrap}>
+                        <Ionicons
+                          name={item.type}
+                          size={18}
+                          color={
+                            item.type === 'heart'
+                              ? '#F55445'
+                              : item.type === 'bookmark'
+                                ? '#47975A'
+                                : '#4E8CE3'
                           }
-                          disabled={reviewingReportId === report.id}
-                          onPress={() => handleHideReportedTarget(report)}
                         />
                       </View>
-                    ))}
+
+                      <Image source={{ uri: item.imageUrl }} style={styles.activityImage} />
+
+                      <View style={styles.activityBody}>
+                        <Text style={styles.activityTitle} numberOfLines={1}>{item.title}</Text>
+                        <Text style={styles.activityMeta} numberOfLines={1}>{item.meta}</Text>
+                      </View>
+
+                      <View style={styles.activityTail}>
+                        {item.unread ? <View style={styles.redDot} /> : null}
+                        <Text style={styles.activityTime}>{item.time}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.rightColumn}>
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderLeft}>
+                <Ionicons name="settings-outline" size={20} color="#6F655F" />
+                <Text style={styles.sectionTitle}>{copy.settings}</Text>
+              </View>
+
+              <Text style={styles.settingsSubtitle}>{copy.settingsBody}</Text>
+
+              <View style={styles.settingsTable}>
+                <View style={styles.settingsRow}>
+                  <Text style={styles.settingsLabel}>{copy.username}</Text>
+                  <TextInput
+                    value={username}
+                    onChangeText={setUsername}
+                    placeholder={copy.defaultUsername}
+                    placeholderTextColor={webDesktopColors.textSoft}
+                    style={[
+                      styles.settingsInput,
+                      { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  />
+                </View>
+
+                <View style={styles.settingsRow}>
+                  <Text style={styles.settingsLabel}>{copy.email}</Text>
+                  <Text style={styles.settingsValue}>{displayEmail || '-'}</Text>
+                </View>
+
+                <View style={styles.settingsRow}>
+                  <Text style={styles.settingsLabel}>{copy.planLabel}</Text>
+                  <View style={styles.settingsRowRight}>
+                    <View style={styles.inlinePillGreen}>
+                      <Text style={styles.inlinePillGreenText}>{planLabel}</Text>
+                    </View>
+                    <Pressable
+                      style={({ pressed }) => [styles.inlineActionButton, pressed && styles.pressed]}
+                      onPress={() => showAlert(copy.planDetails, `${planLabel} - ${planStatusLabel}`)}
+                    >
+                      <Text style={styles.inlineActionText}>{planStatusLabel}</Text>
+                    </Pressable>
                   </View>
-                )}
+                </View>
+
+                <Pressable
+                  style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}
+                  onPress={handleToggleLanguage}
+                >
+                  <Text style={styles.settingsLabel}>{copy.language}</Text>
+                  <View style={styles.settingsRowRight}>
+                    <Text style={styles.settingsValue}>{languageLabel}</Text>
+                    <Ionicons name="chevron-down" size={18} color="#6D635D" />
+                  </View>
+                </Pressable>
+
+                <View style={styles.settingsRow}>
+                  <View style={styles.settingsTextBlock}>
+                    <Text style={styles.settingsLabel}>{copy.privacy}</Text>
+                    <Text style={styles.settingsHint}>{copy.privacyBody}</Text>
+                  </View>
+                  <Switch
+                    value={privacyMode}
+                    onValueChange={setPrivacyMode}
+                    trackColor={{ false: '#D7D1CB', true: '#F7B1A8' }}
+                    thumbColor={privacyMode ? '#F55445' : '#FFFFFF'}
+                  />
+                </View>
+
+                <View style={styles.settingsRow}>
+                  <Text style={styles.settingsLabel}>{copy.bio}</Text>
+                  <TextInput
+                    value={bio}
+                    onChangeText={setBio}
+                    multiline
+                    placeholder={language === 'ar' ? 'نبذة قصيرة' : 'Short bio'}
+                    placeholderTextColor={webDesktopColors.textSoft}
+                    style={[
+                      styles.settingsInput,
+                      styles.bioInput,
+                      { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  />
+                </View>
+              </View>
+
+              <Text style={styles.preferencesHeading}>{copy.preferences}</Text>
+
+              <View style={styles.preferencesCard}>
+                <View style={styles.preferenceRow}>
+                  <View style={styles.settingsTextBlock}>
+                    <Text style={styles.preferenceLabel}>{copy.emailNotifications}</Text>
+                    <Text style={styles.preferenceHint}>{copy.emailNotificationsBody}</Text>
+                  </View>
+                  <Switch
+                    value={emailNotifications}
+                    onValueChange={setEmailNotifications}
+                    trackColor={{ false: '#D7D1CB', true: '#F7B1A8' }}
+                    thumbColor={emailNotifications ? '#F55445' : '#FFFFFF'}
+                  />
+                </View>
+
+                <View style={styles.preferenceRow}>
+                  <View style={styles.settingsTextBlock}>
+                    <Text style={styles.preferenceLabel}>{copy.marketingEmails}</Text>
+                    <Text style={styles.preferenceHint}>{copy.marketingEmailsBody}</Text>
+                  </View>
+                  <Switch
+                    value={marketingEmails}
+                    onValueChange={setMarketingEmails}
+                    trackColor={{ false: '#D7D1CB', true: '#F7B1A8' }}
+                    thumbColor={marketingEmails ? '#F55445' : '#FFFFFF'}
+                  />
+                </View>
+
+                <View style={styles.preferenceRow}>
+                  <Text style={styles.preferenceLabel}>{copy.unread}</Text>
+
+                  <View style={styles.preferenceUnreadWrap}>
+                    <View style={styles.unreadBadge}>
+                      <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={17} color="#6D635D" />
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.bottomActionRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={savingSettings || !user}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    (savingSettings || !user) && styles.disabledButton,
+                    pressed && !savingSettings && user && styles.pressed,
+                  ]}
+                  onPress={() => void handleSaveSettings()}
+                >
+                  {savingSettings ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>{copy.saveSettings}</Text>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={signingOut}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    signingOut && styles.disabledButton,
+                    pressed && !signingOut && styles.pressed,
+                  ]}
+                  onPress={() => void handleSignOut()}
+                >
+                  {signingOut ? (
+                    <ActivityIndicator color={webDesktopColors.text} />
+                  ) : (
+                    <Text style={styles.secondaryButtonText}>{copy.signOut}</Text>
+                  )}
+                </Pressable>
               </View>
             </View>
-          </Card>
-        ) : null}
+          </View>
+        </View>
       </View>
-    </ScreenContainer>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   page: {
-    width: '100%',
-    paddingHorizontal: webDesktopLayout.horizontalPadding,
-    paddingTop: webDesktopLayout.topPadding,
-    paddingBottom: webDesktopLayout.bottomPadding,
+    flex: 1,
+    backgroundColor: webDesktopColors.page,
   },
-  pageShell: {
+  pageContent: {
+    paddingTop: webDesktopLayout.pagePaddingTop,
+    paddingBottom: 48,
+  },
+  container: {
     width: '100%',
     maxWidth: webDesktopLayout.maxWidth,
     alignSelf: 'center',
-    gap: webDesktopLayout.sectionGap,
+    paddingHorizontal: webDesktopLayout.pagePaddingX,
+    gap: 18,
   },
-  toolbarRow: {
+
+  topUtilityRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    minHeight: 42,
+    justifyContent: 'space-between',
   },
-  toolbarSpacer: {
+  topUtilitySpacer: {
     flex: 1,
   },
-  toolbarActions: {
+  topUtilityActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+    gap: 12,
   },
-  toolbarButton: {
-    ...webDesktopControl,
+  searchSquare: {
+    width: 88,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: webDesktopColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  utilityPill: {
     minHeight: 42,
-    minWidth: 42,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
+    gap: 8,
   },
-  toolbarButtonFilled: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-    paddingHorizontal: spacing.md,
-  },
-  toolbarButtonLabel: {
-    ...typography.caption,
-    color: colors.text,
-    fontWeight: '600',
-    fontSize: 13,
+  utilityPillText: {
+    fontSize: 15,
     lineHeight: 18,
+    fontWeight: '600',
+    color: '#4E453F',
   },
-  toolbarButtonLabelFilled: {
-    color: colors.surface,
-  },
-  searchGlyph: {
-    width: 22,
-    height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  searchGlyphCircle: {
-    width: 13,
-    height: 13,
-    borderRadius: 999,
-    borderWidth: 1.8,
-    borderColor: colors.surface,
-    position: 'absolute',
-    top: 2,
-    left: 2,
-  },
-  searchGlyphHandle: {
-    width: 8,
-    height: 2,
-    borderRadius: 999,
-    backgroundColor: colors.surface,
-    position: 'absolute',
-    right: 1,
-    bottom: 4,
-    transform: [{ rotate: '45deg' }],
-  },
+
   heroCard: {
-    ...webDesktopSupportSurface,
-    paddingHorizontal: spacing.xxl + 8,
-    paddingVertical: spacing.xxl,
-  },
-  heroRow: {
+    minHeight: 140,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFDFB',
+    paddingHorizontal: 28,
+    paddingVertical: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.xl,
   },
-  heroRowStack: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
+  heroLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+    flex: 1,
+    minWidth: 0,
+  },
+  avatar: {
+    width: 102,
+    height: 102,
+    borderRadius: 51,
+    backgroundColor: '#DED6CE',
   },
   heroIdentity: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.lg,
-    flex: 1,
+    justifyContent: 'center',
     minWidth: 0,
-  },
-  avatarFrame: {
-    width: 108,
-    height: 108,
-    borderRadius: 999,
-    backgroundColor: '#E5EEF5',
-    borderWidth: 1,
-    borderColor: '#E1D8CD',
-    padding: 6,
-    overflow: 'hidden',
-    flexShrink: 0,
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 999,
-  },
-  heroCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 5,
   },
   heroName: {
-    ...typography.title,
-    fontSize: 24,
-    lineHeight: 30,
-    color: colors.text,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '800',
+    color: webDesktopColors.text,
   },
   heroEmail: {
-    ...typography.bodyMuted,
-    color: colors.textMuted,
-    fontSize: 15,
+    marginTop: 6,
+    fontSize: 16,
     lineHeight: 20,
+    color: webDesktopColors.textMuted,
   },
-  heroBadgeRow: {
+  badgeRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 12,
     flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
   },
-  heroBadge: {
-    minHeight: 30,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: '#DED2C6',
-    backgroundColor: '#F9F3EC',
-    paddingHorizontal: spacing.md,
+  roleBadge: {
+    minHeight: 32,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: '#F3EAE2',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroBadgePlan: {
-    backgroundColor: '#E8F3E8',
-    borderColor: '#CFE3CF',
+  roleBadgeText: {
+    fontSize: 14,
+    lineHeight: 17,
+    color: '#5E554F',
+    fontWeight: '700',
   },
-  heroBadgeLabel: {
-    ...typography.caption,
-    color: colors.text,
-    fontWeight: '600',
+  planBadge: {
+    minHeight: 32,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: '#EAF5EA',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  heroBadgeLabelPlan: {
-    color: colors.success,
+  planBadgeText: {
+    fontSize: 14,
+    lineHeight: 17,
+    color: '#4D8A57',
+    fontWeight: '700',
   },
-  heroStatsRow: {
+
+  heroStats: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    borderLeftWidth: 1,
-    borderLeftColor: '#EFE5DA',
-    paddingLeft: spacing.xxl,
-    gap: spacing.xl,
-  },
-  heroStatsRowStack: {
-    borderLeftWidth: 0,
-    borderTopWidth: 1,
-    borderTopColor: '#EFE5DA',
-    paddingLeft: 0,
-    paddingTop: spacing.xl,
+    alignItems: 'center',
+    gap: 28,
+    marginLeft: 32,
   },
   heroStat: {
-    minWidth: 170,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: 14,
+    minWidth: 180,
   },
-  heroStatIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 999,
+  heroStatIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroStatIconXp: {
-    backgroundColor: '#FCE8E4',
+  heroStatSoftRed: {
+    backgroundColor: '#FFF0EC',
   },
-  heroStatIconSaves: {
-    backgroundColor: '#EDF4DF',
+  heroStatSoftGreen: {
+    backgroundColor: '#EEF7E5',
   },
-  heroStatIconUnread: {
-    backgroundColor: '#EAF1FF',
-  },
-  heroStatGlyph: {
-    width: 16,
-    height: 16,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: colors.primary,
-  },
-  heroStatCopy: {
-    gap: 2,
+  heroStatSoftBlue: {
+    backgroundColor: '#EEF4FF',
   },
   heroStatValue: {
-    ...typography.title,
-    fontSize: 22,
-    lineHeight: 26,
+    fontSize: 18,
+    lineHeight: 21,
+    fontWeight: '800',
+    color: webDesktopColors.text,
   },
   heroStatLabel: {
-    ...typography.body,
+    marginTop: 2,
+    fontSize: 14,
+    lineHeight: 17,
+    color: '#4B423C',
     fontWeight: '600',
+  },
+  heroStatSub: {
+    marginTop: 5,
     fontSize: 14,
     lineHeight: 18,
+    color: webDesktopColors.textMuted,
   },
-  heroStatSubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  heroStatDivider: {
+  heroDivider: {
     width: 1,
-    backgroundColor: '#EEE3D8',
+    height: 74,
+    backgroundColor: webDesktopColors.border,
   },
+  productPanels: {
+    gap: 18,
+  },
+
   mainGrid: {
-    gap: spacing.lg,
-  },
-  mainGridWide: {
     flexDirection: 'row',
+    gap: 22,
     alignItems: 'flex-start',
   },
   leftColumn: {
-    flex: 1.02,
+    flex: 1,
     minWidth: 0,
-    gap: spacing.md,
+    gap: 16,
   },
   rightColumn: {
-    minWidth: 0,
+    width: 710,
   },
-  moduleCard: {
-    ...webDesktopSurface,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  settingsCard: {
-    flex: 0.98,
-    minWidth: 0,
-    width: '100%',
-    ...webDesktopSurface,
-    padding: spacing.lg,
-    gap: spacing.md,
+
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    borderRadius: 20,
+    padding: 16,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    marginBottom: 12,
+    gap: 12,
   },
-  sectionHeading: {
+  sectionHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm + 2,
+    gap: 10,
   },
-  sectionIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionIconSaved: {
-    backgroundColor: '#F0F2F8',
-  },
-  sectionIconActivity: {
-    backgroundColor: '#FBECE8',
-  },
-  sectionIconSettings: {
-    backgroundColor: '#F2F3F5',
-  },
-  sectionIconInner: {
-    width: 9,
-    height: 9,
-    borderRadius: 2,
-    borderWidth: 1.5,
-    borderColor: colors.textMuted,
-  },
-  sectionHeadingTitle: {
-    ...typography.sectionTitle,
-    ...webDesktopSectionTitle,
-    color: colors.text,
-  },
-  sectionAction: {
-    minHeight: 24,
-    justifyContent: 'center',
-  },
-  sectionActionLabel: {
-    ...typography.caption,
-    color: colors.primary,
-    fontWeight: '600',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  compactEmptyState: {
-    gap: 4,
-    paddingVertical: spacing.sm,
-  },
-  compactEmptyTitle: {
-    ...typography.body,
-    color: colors.text,
-    fontWeight: '600',
-    fontSize: 14,
-    lineHeight: 19,
-  },
-  compactEmptySubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  savedList: {
-    gap: spacing.sm,
-  },
-  savedRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: '#EEE5DB',
-    backgroundColor: '#FFFEFC',
-    borderRadius: radius.lg,
-    padding: spacing.sm,
-  },
-  savedRowImage: {
-    width: 168,
-    height: 88,
-    borderRadius: radius.md,
-    backgroundColor: '#E9E1D6',
-  },
-  savedRowBody: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  savedRowCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 4,
-    justifyContent: 'center',
-  },
-  savedRowTitle: {
-    ...typography.body,
+  sectionTitle: {
     fontSize: 16,
     lineHeight: 20,
+    fontWeight: '800',
+    color: webDesktopColors.text,
+  },
+  viewAll: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: webDesktopColors.primary,
     fontWeight: '700',
-    color: colors.text,
   },
-  savedRowMeta: {
-    ...typography.caption,
-    color: colors.textMuted,
+
+  savedList: {
+    gap: 10,
+  },
+  savedItem: {
+    minHeight: 88,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EEE8E2',
+    backgroundColor: '#FFFFFF',
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  savedImage: {
+    width: 160,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: '#E9E2DA',
+  },
+  savedBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  savedTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
+    color: webDesktopColors.text,
+  },
+  savedMeta: {
+    marginTop: 4,
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 16,
+    color: '#6F655F',
   },
-  savedRowDescription: {
-    ...typography.caption,
-    color: colors.text,
+  savedDescription: {
+    marginTop: 5,
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 17,
+    color: '#7F746D',
   },
-  savedRowAside: {
-    width: 76,
+  savedRight: {
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    gap: spacing.xs,
+    alignSelf: 'stretch',
+    paddingVertical: 4,
   },
-  savedRowAsideLabel: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 12,
+  savedAgo: {
+    fontSize: 13,
     lineHeight: 16,
+    color: '#7F746D',
+    textAlign: 'right',
   },
-  savedRowAsideValue: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  savedRowBookmark: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+  savedBookmarkButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E7DDD2',
-    backgroundColor: '#FFFDFC',
+    borderColor: webDesktopColors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  savedRowBookmarkInner: {
-    width: 10,
-    height: 13,
-    borderWidth: 1.8,
-    borderColor: colors.textMuted,
-    borderTopLeftRadius: 2,
-    borderTopRightRadius: 2,
+
+  emptyPanel: {
+    minHeight: 88,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EEE8E2',
+    backgroundColor: '#FFFDFB',
+    padding: 16,
+    justifyContent: 'center',
   },
+  emptyTitle: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '800',
+    color: webDesktopColors.text,
+  },
+  emptyBody: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 18,
+    color: webDesktopColors.textMuted,
+  },
+
   activityList: {
     gap: 0,
   },
   activityRow: {
-    minHeight: 72,
+    minHeight: 76,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: 14,
     borderTopWidth: 1,
-    borderTopColor: '#EEE5DB',
-    paddingVertical: spacing.md,
+    borderTopColor: '#EEE8E2',
+    paddingVertical: 12,
   },
-  activityRowUnread: {
-    backgroundColor: '#FFF9F7',
-  },
-  activityIcon: {
+  activityIconWrap: {
     width: 38,
     height: 38,
-    borderRadius: 999,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
+    backgroundColor: '#F8F4EF',
   },
-  activityIconLike: {
-    backgroundColor: '#FDEBE7',
+  activityImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#E9E2DA',
   },
-  activityIconComment: {
-    backgroundColor: '#EAF2FF',
-  },
-  activityIconSave: {
-    backgroundColor: '#EAF6EA',
-  },
-  activityIconGlyph: {
-    width: 10,
-    height: 10,
-    borderRadius: 2,
-    borderWidth: 1.6,
-    borderColor: colors.primary,
-  },
-  activityCopy: {
+  activityBody: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
   },
   activityTitle: {
-    ...typography.body,
-    fontSize: 15,
+    fontSize: 16,
     lineHeight: 20,
-    color: colors.text,
-    fontWeight: '600',
+    fontWeight: '700',
+    color: webDesktopColors.text,
   },
-  activitySubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 13,
+  activityMeta: {
+    marginTop: 4,
+    fontSize: 14,
     lineHeight: 18,
+    color: '#6F655F',
   },
-  activityAside: {
+  activityTail: {
     alignItems: 'flex-end',
-    gap: spacing.xs,
-    minWidth: 70,
+    gap: 6,
   },
-  activityTimestamp: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 12,
+  activityTime: {
+    fontSize: 13,
     lineHeight: 16,
+    color: '#7F746D',
   },
-  activityUnreadDot: {
+  redDot: {
     width: 8,
     height: 8,
-    borderRadius: 999,
-    backgroundColor: colors.primary,
+    borderRadius: 4,
+    backgroundColor: webDesktopColors.primary,
   },
-  inlineStatusText: {
-    ...typography.caption,
-    color: colors.textSubtle,
-    marginTop: spacing.sm,
-  },
+
   settingsSubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: -4,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: '#EEE5DB',
-    paddingTop: spacing.md,
-  },
-  settingRowBio: {
-    alignItems: 'stretch',
-  },
-  settingRowLabel: {
-    ...typography.body,
-    width: 100,
-    color: colors.text,
-    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 14,
     fontSize: 15,
     lineHeight: 20,
-    paddingTop: 8,
+    color: webDesktopColors.textMuted,
   },
-  settingRowField: {
-    flex: 1,
-    minWidth: 0,
+  settingsTable: {
+    borderTopWidth: 1,
+    borderTopColor: '#EEE8E2',
   },
-  settingRowFieldInline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: 40,
-  },
-  settingRowFieldSwitch: {
+  settingsRow: {
+    minHeight: 58,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE8E2',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
-    minHeight: 40,
+    gap: 16,
   },
-  settingRowFieldCopy: {
+  settingsTextBlock: {
     flex: 1,
     minWidth: 0,
   },
-  settingInput: {
-    ...webDesktopControl,
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    color: colors.text,
+  settingsLabel: {
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: '#403732',
+  },
+  settingsHint: {
+    marginTop: 4,
     fontSize: 14,
     lineHeight: 18,
+    color: '#857A73',
   },
-  settingTextarea: {
-    minHeight: 88,
+  settingsRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexShrink: 1,
+  },
+  settingsValue: {
+    fontSize: 15,
+    lineHeight: 19,
+    color: '#4F4640',
+  },
+  settingsInput: {
+    minWidth: 260,
+    maxWidth: 390,
+    minHeight: 38,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 15,
+    lineHeight: 19,
+    color: webDesktopColors.text,
+    backgroundColor: '#FFFFFF',
+  },
+  bioInput: {
+    minHeight: 58,
     textAlignVertical: 'top',
   },
-  settingValueText: {
-    ...typography.body,
-    color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    paddingVertical: spacing.sm,
+  inlineActionButton: {
+    minHeight: 30,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  settingSupportText: {
-    ...typography.caption,
-    color: colors.textMuted,
+  inlineActionText: {
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 16,
+    color: '#5E554E',
+    fontWeight: '600',
   },
-  settingValuePill: {
+  inlinePillGreen: {
     minHeight: 28,
-    borderRadius: radius.pill,
-    backgroundColor: '#F2F1EE',
-    paddingHorizontal: spacing.sm + 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  settingValuePillSuccess: {
+    paddingHorizontal: 12,
+    borderRadius: 999,
     backgroundColor: '#EAF5EA',
-  },
-  settingValuePillLabel: {
-    ...typography.caption,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  settingValuePillLabelSuccess: {
-    color: colors.success,
-  },
-  languageToggleRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  languageOption: {
-    minHeight: 38,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#E8DDD2',
-    backgroundColor: '#FFFEFC',
-    paddingHorizontal: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  languageOptionActive: {
-    borderColor: colors.primary,
-    backgroundColor: '#FFF1ED',
-  },
-  languageOptionLabel: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontWeight: '600',
-  },
-  languageOptionLabelActive: {
-    color: colors.primaryPressed,
-  },
-  preferenceCard: {
-    borderWidth: 1,
-    borderColor: '#ECE2D7',
-    backgroundColor: '#FFFDF9',
-    borderRadius: radius.lg,
-    marginTop: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    gap: spacing.xs,
-  },
-  preferenceCardTitle: {
-    ...typography.body,
-    color: colors.text,
+  inlinePillGreenText: {
+    fontSize: 13,
+    lineHeight: 16,
+    color: '#4D8A57',
     fontWeight: '700',
-    fontSize: 15,
+  },
+
+  preferencesHeading: {
+    marginTop: 18,
+    marginBottom: 12,
+    fontSize: 16,
     lineHeight: 20,
-    marginBottom: 2,
+    fontWeight: '800',
+    color: webDesktopColors.text,
+  },
+  preferencesCard: {
+    borderWidth: 1,
+    borderColor: '#EEE8E2',
+    borderRadius: 16,
+    overflow: 'hidden',
   },
   preferenceRow: {
-    minHeight: 56,
+    minHeight: 58,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE8E2',
+    paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFE5DA',
-    paddingVertical: spacing.sm,
+    gap: 14,
+    backgroundColor: '#FFFFFF',
   },
-  preferenceRowLast: {
-    borderBottomWidth: 0,
-    paddingBottom: 0,
+  preferenceLabel: {
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: '#403732',
   },
-  preferenceCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  preferenceTitle: {
-    ...typography.body,
-    color: colors.text,
-    fontWeight: '600',
+  preferenceHint: {
+    marginTop: 4,
     fontSize: 14,
     lineHeight: 18,
-  },
-  preferenceSubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  preferenceControl: {
-    alignItems: 'flex-end',
+    color: '#857A73',
   },
   preferenceUnreadWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 10,
   },
-  preferenceUnreadBadge: {
+  unreadBadge: {
     minWidth: 28,
     height: 28,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5DBD0',
-    backgroundColor: '#FFFCF8',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    backgroundColor: '#F7F3EE',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.xs + 2,
-  },
-  preferenceUnreadBadgeLabel: {
-    ...typography.caption,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  preferenceInlineAction: {
-    minHeight: 28,
-    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: '#E6DACE',
-    backgroundColor: '#FFF7F3',
-    paddingHorizontal: spacing.sm + 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: webDesktopColors.border,
   },
-  preferenceInlineActionLabel: {
-    ...typography.caption,
-    color: colors.primaryPressed,
-    fontWeight: '600',
-  },
-  settingsButtonRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  primaryActionButton: {
-    flex: 1,
-  },
-  secondaryActionButton: {
-    minWidth: 120,
-  },
-  adminCard: {
-    ...webDesktopSurface,
-    padding: spacing.lg,
-    gap: spacing.lg,
-  },
-  adminHeader: {
-    gap: 4,
-  },
-  adminTitle: {
-    ...typography.sectionTitle,
-    fontSize: 18,
-    lineHeight: 23,
-    color: colors.text,
-  },
-  adminSubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
+  unreadBadgeText: {
     fontSize: 13,
-    lineHeight: 18,
-  },
-  adminGrid: {
-    gap: spacing.md,
-  },
-  adminGridWide: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  adminPanel: {
-    flex: 1,
-    minWidth: 280,
-    borderWidth: 1,
-    borderColor: '#ECE2D7',
-    backgroundColor: '#FFFDF9',
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  adminPanelWide: {
-    minWidth: 420,
-    flexBasis: '48%',
-  },
-  adminPanelTitle: {
-    ...typography.body,
-    color: colors.text,
+    lineHeight: 16,
     fontWeight: '700',
+    color: '#5A514B',
+  },
+
+  bottomActionRow: {
+    marginTop: 18,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  primaryButton: {
+    minHeight: 46,
+    minWidth: 140,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    backgroundColor: webDesktopColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
     fontSize: 15,
-    lineHeight: 20,
-  },
-  adminPanelSubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  adminChipGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-  },
-  analyticsMiniGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  analyticsMiniTile: {
-    minWidth: 96,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#E7DDD2',
-    backgroundColor: '#FFFEFC',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: 2,
-  },
-  analyticsMiniValue: {
-    ...typography.title,
-    fontSize: 20,
-    lineHeight: 24,
-    color: colors.text,
-  },
-  analyticsMiniLabel: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  reportList: {
-    gap: spacing.sm,
-  },
-  reportCard: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#ECE2D7',
-    backgroundColor: '#FFFEFC',
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  reportTitle: {
-    ...typography.body,
-    color: colors.text,
-    fontWeight: '600',
-    fontSize: 14,
     lineHeight: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
-  reportSubtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 12,
-    lineHeight: 16,
+  secondaryButton: {
+    minHeight: 46,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  reportMeta: {
-    ...typography.caption,
-    color: colors.textSubtle,
-    fontSize: 12,
-    lineHeight: 16,
+  secondaryButtonText: {
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: '#4F4640',
   },
-  pressedState: {
-    opacity: 0.9,
+  disabledButton: {
+    opacity: 0.55,
+  },
+  pressed: {
+    opacity: 0.82,
   },
 });

@@ -1,5 +1,10 @@
 import type { AppLanguage } from '../types/profile';
 import type { SpotCategory } from '../types/post';
+import type { DisplayCategoryId, ExploreCategoryId } from '../constants/categories';
+import {
+  getDisplayCategoryIdForStoredCategory,
+  isDisplayCategoryId,
+} from '../constants/categories';
 
 type TranslationParams = Record<string, string | number | null | undefined>;
 type TranslationValue = string | ((params: TranslationParams) => string);
@@ -56,10 +61,18 @@ const translations: Record<AppLanguage, Record<string, TranslationValue>> = {
     'auth.missingData': 'Missing data',
 
     'category.all': 'All',
+    'category.food': 'Food & Drinks',
+    'category.coffee': 'Coffee',
+    'category.study': 'Study & Work',
+    'category.outdoors': 'Outdoors',
     'category.fishing': 'Fishing',
-    'category.event': 'Event',
-    'category.sighting': 'Sighting',
-    'category.weather': 'Weather',
+    'category.camping': 'Camping',
+    'category.events': 'Events',
+    'category.family': 'Family',
+    'category.sights': 'Sights',
+    'category.event': 'Events',
+    'category.sighting': 'Sights',
+    'category.weather': 'Outdoors',
     'category.spot': 'Spot',
 
     'role.user': 'User',
@@ -599,10 +612,18 @@ const translations: Record<AppLanguage, Record<string, TranslationValue>> = {
     'auth.missingData': 'بيانات ناقصة',
 
     'category.all': 'الكل',
+    'category.food': 'مأكولات ومشروبات',
+    'category.coffee': 'قهوة',
+    'category.study': 'دراسة وعمل',
+    'category.outdoors': 'خارجي',
     'category.fishing': 'الصيد',
-    'category.event': 'فعالية',
-    'category.sighting': 'مشاهدة',
-    'category.weather': 'الطقس',
+    'category.camping': 'التخييم',
+    'category.events': 'فعاليات',
+    'category.family': 'عائلة',
+    'category.sights': 'معالم',
+    'category.event': 'فعاليات',
+    'category.sighting': 'معالم',
+    'category.weather': 'خارجي',
     'category.spot': 'مكان',
 
     'role.user': 'مستخدم',
@@ -1192,11 +1213,28 @@ export function getStartEdgeInsets(
     : { left: start, right: end };
 }
 
-export function getCategoryLabel(category?: SpotCategory, language = currentLanguage) {
-  if (!category) {
+export function getCategoryLabel(
+  category?: SpotCategory,
+  language = currentLanguage,
+  displayCategory?: DisplayCategoryId | null
+) {
+  if (isDisplayCategoryId(displayCategory)) {
+    return translate(`category.${displayCategory}`, {}, language);
+  }
+
+  const storedDisplayCategory = getDisplayCategoryIdForStoredCategory(category);
+
+  if (!storedDisplayCategory) {
     return translate('category.spot', {}, language);
   }
 
+  return translate(`category.${storedDisplayCategory}`, {}, language);
+}
+
+export function getExploreCategoryLabel(
+  category: ExploreCategoryId,
+  language = currentLanguage
+) {
   return translate(`category.${category}`, {}, language);
 }
 

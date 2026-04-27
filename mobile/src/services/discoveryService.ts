@@ -6,6 +6,7 @@ import {
   getPluralSuffix,
   translate,
 } from '../i18n';
+import type { AppLanguage } from '../types/profile';
 import type {
   DiscoveryCoordinates,
   DiscoveryEvent,
@@ -15,6 +16,7 @@ import type {
   DiscoveryTrustSignal,
 } from '../types/discovery';
 import type { SpotCategory, SpotPost } from '../types/post';
+import type { DisplayCategoryId } from '../constants/categories';
 
 type SpotDiscoveryOptions = {
   commentCountsByPostId?: Record<string, number>;
@@ -23,6 +25,7 @@ type SpotDiscoveryOptions = {
   browserLocation?: DiscoveryCoordinates | null;
   searchQuery?: string;
   nowMs?: number;
+  language?: AppLanguage;
 };
 
 type EventDiscoveryOptions = {
@@ -30,23 +33,28 @@ type EventDiscoveryOptions = {
   browserLocation?: DiscoveryCoordinates | null;
   searchQuery?: string;
   nowMs?: number;
+  language?: AppLanguage;
 };
 
-export function formatCategoryLabel(category?: SpotCategory) {
-  return getCategoryLabel(category);
+export function formatCategoryLabel(
+  category?: SpotCategory,
+  language?: AppLanguage,
+  displayCategory?: DisplayCategoryId | null
+) {
+  return getCategoryLabel(category, language, displayCategory);
 }
 
 export function formatLocationLabel(input: {
   locationName?: string | null;
   lat: number;
   lng: number;
-}) {
+}, language?: AppLanguage) {
   return (
     input.locationName ||
     translate('discovery.areaFallback', {
-      lat: formatNumber(Number(input.lat.toFixed(2))),
-      lng: formatNumber(Number(input.lng.toFixed(2))),
-    })
+      lat: formatNumber(Number(input.lat.toFixed(2)), language),
+      lng: formatNumber(Number(input.lng.toFixed(2)), language),
+    }, language)
   );
 }
 
@@ -83,9 +91,9 @@ export function getTimestampMs(value: unknown) {
   return null;
 }
 
-export function formatDateLabel(value: string) {
+export function formatDateLabel(value: string, language?: AppLanguage) {
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : formatCompactDateTime(parsed);
+  return Number.isNaN(parsed.getTime()) ? value : formatCompactDateTime(parsed, language);
 }
 
 export function calculateDistanceKm(
@@ -109,47 +117,51 @@ export function calculateDistanceKm(
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function formatDistanceLabel(distanceKm: number | null) {
+export function formatDistanceLabel(distanceKm: number | null, language?: AppLanguage) {
   if (distanceKm === null) {
-    return translate('discovery.distanceUnavailable');
+    return translate('discovery.distanceUnavailable', {}, language);
   }
 
   if (distanceKm < 1) {
     return translate('discovery.metersAway', {
-      value: formatNumber(Math.round(distanceKm * 1000)),
-    });
+      value: formatNumber(Math.round(distanceKm * 1000), language),
+    }, language);
   }
 
   return translate('discovery.kmAway', {
-    value: formatNumber(Number(distanceKm.toFixed(distanceKm < 10 ? 1 : 0))),
-  });
+    value: formatNumber(Number(distanceKm.toFixed(distanceKm < 10 ? 1 : 0)), language),
+  }, language);
 }
 
-export function formatRelativeTime(valueMs: number | null, nowMs = Date.now()) {
+export function formatRelativeTime(
+  valueMs: number | null,
+  nowMs = Date.now(),
+  language?: AppLanguage
+) {
   if (valueMs === null) {
-    return translate('discovery.pendingUpdate');
+    return translate('discovery.pendingUpdate', {}, language);
   }
 
   const minutes = Math.max(1, Math.round((nowMs - valueMs) / 60000));
 
   if (minutes < 60) {
     return translate('discovery.minutesAgo', {
-      value: formatNumber(minutes),
-    });
+      value: formatNumber(minutes, language),
+    }, language);
   }
 
   const hours = Math.round(minutes / 60);
   if (hours < 24) {
     return translate('discovery.hoursAgo', {
-      value: formatNumber(hours),
-    });
+      value: formatNumber(hours, language),
+    }, language);
   }
 
   const days = Math.round(hours / 24);
   return translate('discovery.daysAgo', {
-    value: formatNumber(days),
+    value: formatNumber(days, language),
     suffix: getPluralSuffix(days),
-  });
+  }, language);
 }
 
 function normalizeLocationName(value?: string | null) {
@@ -197,16 +209,30 @@ function getAreaParts(input?: string | null) {
   };
 }
 
-function getSpotTitle(post: SpotPost) {
+function getSpotTitle(post: SpotPost, language?: AppLanguage) {
   const parts = getAreaParts(post.locationName);
   const baseTitle =
     parts.title ||
     translate('discovery.spotFallback', {
-      category: formatCategoryLabel(post.category),
-    });
+      category: formatCategoryLabel(post.category, language, post.displayCategory),
+    }, language);
 
   if (!parts.title) {
     return baseTitle;
+  }
+
+  if (language === 'ar') {
+    switch (post.category) {
+      case 'event':
+        return `${baseTitle} الليلة`;
+      case 'weather':
+        return `${baseTitle} - حالة الطقس`;
+      case 'fishing':
+        return `${baseTitle} - نافذة الصيد`;
+      case 'sighting':
+      default:
+        return `${baseTitle} الآن`;
+    }
   }
 
   switch (post.category) {
@@ -226,23 +252,23 @@ function getAreaLabel(input: {
   locationName?: string | null;
   lat: number;
   lng: number;
-}) {
+}, language?: AppLanguage) {
   const parts = getAreaParts(input.locationName);
   return (
     parts.area ||
     translate('discovery.areaFallback', {
-      lat: formatNumber(Number(input.lat.toFixed(2))),
-      lng: formatNumber(Number(input.lng.toFixed(2))),
-    })
+      lat: formatNumber(Number(input.lat.toFixed(2)), language),
+      lng: formatNumber(Number(input.lng.toFixed(2)), language),
+    }, language)
   );
 }
 
-function getEventVenueLabel(event: PromotedEvent) {
-  return event.venueName || formatLocationLabel(event);
+function getEventVenueLabel(event: PromotedEvent, language?: AppLanguage) {
+  return event.venueName || formatLocationLabel(event, language);
 }
 
-function getEventOrganizerLabel(event: PromotedEvent) {
-  return event.organizerName || event.createdBy || translate('discovery.unknownOrganizer');
+function getEventOrganizerLabel(event: PromotedEvent, language?: AppLanguage) {
+  return event.organizerName || event.createdBy || translate('discovery.unknownOrganizer', {}, language);
 }
 
 function getSearchScore(searchQuery: string | undefined, fields: string[]) {
@@ -386,6 +412,7 @@ function createSpotTrustSignals(input: {
   commentCount: number;
   likeCount: number;
   recentPostsCount: number;
+  language?: AppLanguage;
 }): DiscoveryTrustSignal[] {
   const signals: DiscoveryTrustSignal[] = [];
   const engagementScore = input.commentCount * 2 + input.likeCount;
@@ -393,7 +420,7 @@ function createSpotTrustSignals(input: {
   if (engagementScore >= 10) {
     signals.push({
       id: 'popular-now',
-      label: translate('discovery.popularNow'),
+      label: translate('discovery.popularNow', {}, input.language),
       tone: 'warning',
     });
   }
@@ -402,8 +429,8 @@ function createSpotTrustSignals(input: {
     signals.push({
       id: 'updated',
       label: translate('discovery.updatedSignal', {
-        value: formatRelativeTime(input.createdAtMs, input.nowMs),
-      }),
+        value: formatRelativeTime(input.createdAtMs, input.nowMs, input.language),
+      }, input.language),
       tone: 'info',
     });
   }
@@ -412,8 +439,8 @@ function createSpotTrustSignals(input: {
     signals.push({
       id: 'recent-posts',
       label: translate('discovery.recentPostsSignal', {
-        count: formatNumber(input.recentPostsCount),
-      }),
+        count: formatNumber(input.recentPostsCount, input.language),
+      }, input.language),
       tone: 'info',
     });
   }
@@ -421,7 +448,7 @@ function createSpotTrustSignals(input: {
   if (signals.length === 0) {
     signals.push({
       id: 'community',
-      label: translate('discovery.communitySignal'),
+      label: translate('discovery.communitySignal', {}, input.language),
       tone: 'neutral',
     });
   }
@@ -434,14 +461,15 @@ function createSpotSocialSignal(input: {
   likeCount: number;
   recentPostsCount: number;
   saved: boolean;
+  language?: AppLanguage;
 }): DiscoverySocialSignal | null {
   if (input.commentCount > 0) {
     return {
       id: 'comments',
       label: translate('discovery.comments', {
-        count: formatNumber(input.commentCount),
+        count: formatNumber(input.commentCount, input.language),
         suffix: getPluralSuffix(input.commentCount),
-      }),
+      }, input.language),
       tone: 'info',
     };
   }
@@ -450,9 +478,9 @@ function createSpotSocialSignal(input: {
     return {
       id: 'likes',
       label: translate('discovery.likes', {
-        count: formatNumber(input.likeCount),
+        count: formatNumber(input.likeCount, input.language),
         suffix: getPluralSuffix(input.likeCount),
-      }),
+      }, input.language),
       tone: 'primary',
     };
   }
@@ -460,7 +488,7 @@ function createSpotSocialSignal(input: {
   if (input.saved) {
     return {
       id: 'saved',
-      label: translate('discovery.saved'),
+      label: translate('discovery.saved', {}, input.language),
       tone: 'primary',
     };
   }
@@ -469,8 +497,8 @@ function createSpotSocialSignal(input: {
     return {
       id: 'activity',
       label: translate('discovery.nearbyUpdates', {
-        count: formatNumber(input.recentPostsCount),
-      }),
+        count: formatNumber(input.recentPostsCount, input.language),
+      }, input.language),
       tone: 'info',
     };
   }
@@ -509,6 +537,7 @@ function createEventTrustSignals(input: {
   event: PromotedEvent;
   nowMs: number;
   nearbyActivityCount: number;
+  language?: AppLanguage;
 }): DiscoveryTrustSignal[] {
   const signals: DiscoveryTrustSignal[] = [];
   const startMs = getTimestampMs(input.event.startTime);
@@ -523,7 +552,7 @@ function createEventTrustSignals(input: {
   if (isActiveNow) {
     signals.push({
       id: 'active-now',
-      label: translate('discovery.activeNow'),
+      label: translate('discovery.activeNow', {}, input.language),
       tone: 'success',
     });
   }
@@ -531,7 +560,7 @@ function createEventTrustSignals(input: {
   if (input.event.isPromoted) {
     signals.push({
       id: 'promoted',
-      label: translate('discovery.promoted'),
+      label: translate('discovery.promoted', {}, input.language),
       tone: 'primary',
     });
   }
@@ -544,7 +573,7 @@ function createEventTrustSignals(input: {
   ) {
     signals.push({
       id: 'starts-soon',
-      label: translate('discovery.startingSoon'),
+      label: translate('discovery.startingSoon', {}, input.language),
       tone: 'warning',
     });
   }
@@ -553,8 +582,8 @@ function createEventTrustSignals(input: {
     signals.push({
       id: 'nearby-posts',
       label: translate('discovery.nearbyPostsSignal', {
-        count: formatNumber(input.nearbyActivityCount),
-      }),
+        count: formatNumber(input.nearbyActivityCount, input.language),
+      }, input.language),
       tone: 'info',
     });
   }
@@ -563,8 +592,8 @@ function createEventTrustSignals(input: {
     signals.push({
       id: 'updated',
       label: translate('discovery.updatedSignal', {
-        value: formatRelativeTime(createdAtMs, input.nowMs),
-      }),
+        value: formatRelativeTime(createdAtMs, input.nowMs, input.language),
+      }, input.language),
       tone: 'info',
     });
   }
@@ -572,7 +601,7 @@ function createEventTrustSignals(input: {
   if (signals.length === 0) {
     signals.push({
       id: 'scheduled',
-      label: translate('discovery.scheduled'),
+      label: translate('discovery.scheduled', {}, input.language),
       tone: 'neutral',
     });
   }
@@ -580,7 +609,10 @@ function createEventTrustSignals(input: {
   return signals;
 }
 
-function createEventSocialSignal(nearbyActivityCount: number): DiscoverySocialSignal | null {
+function createEventSocialSignal(
+  nearbyActivityCount: number,
+  language?: AppLanguage
+): DiscoverySocialSignal | null {
   if (nearbyActivityCount <= 0) {
     return null;
   }
@@ -588,9 +620,9 @@ function createEventSocialSignal(nearbyActivityCount: number): DiscoverySocialSi
   return {
     id: 'nearby-activity',
     label: translate('discovery.nearbyPosts', {
-      count: formatNumber(nearbyActivityCount),
+      count: formatNumber(nearbyActivityCount, language),
       suffix: getPluralSuffix(nearbyActivityCount),
-    }),
+    }, language),
     tone: 'info',
   };
 }
@@ -624,6 +656,7 @@ export function buildDiscoverySpotItems(
   const likeCountsByPostId = options.likeCountsByPostId ?? {};
   const browserLocation = options.browserLocation ?? null;
   const nowMs = options.nowMs ?? Date.now();
+  const language = options.language;
   const nearbyPostsCountByLocation = createNearbyPostsCountMap(posts, nowMs);
 
   return posts
@@ -637,21 +670,27 @@ export function buildDiscoverySpotItems(
       const saved = favoritePostIds.has(post.id);
       const locationKey = getLocationKey(post);
       const recentPostsCount = nearbyPostsCountByLocation[locationKey] ?? 1;
-      const categoryLabel = formatCategoryLabel(post.category);
-      const title = getSpotTitle(post);
-      const areaLabel = getAreaLabel(post);
+      const categoryLabel = formatCategoryLabel(
+        post.category,
+        language,
+        post.displayCategory
+      );
+      const title = getSpotTitle(post, language);
+      const areaLabel = getAreaLabel(post, language);
       const trustSignals = createSpotTrustSignals({
         nowMs,
         createdAtMs,
         commentCount,
         likeCount,
         recentPostsCount,
+        language,
       });
       const socialSignal = createSpotSocialSignal({
         commentCount,
         likeCount,
         recentPostsCount,
         saved,
+        language,
       });
       const rankingScore =
         getSearchScore(options.searchQuery, [
@@ -674,8 +713,8 @@ export function buildDiscoverySpotItems(
         title,
         categoryLabel,
         areaLabel,
-        locationLabel: formatLocationLabel(post),
-        distanceLabel: formatDistanceLabel(distanceKm),
+        locationLabel: formatLocationLabel(post, language),
+        distanceLabel: formatDistanceLabel(distanceKm, language),
         description: post.text,
         summary: post.text,
         hero: {
@@ -689,18 +728,21 @@ export function buildDiscoverySpotItems(
         trustSignals,
         socialSignal,
         facts: [
-          { label: translate('discovery.locationFact'), value: formatLocationLabel(post) },
           {
-            label: translate('discovery.updatedFact'),
+            label: translate('discovery.locationFact', {}, language),
+            value: formatLocationLabel(post, language),
+          },
+          {
+            label: translate('discovery.updatedFact', {}, language),
             value:
               createdAtMs === null
-                ? translate('common.pendingTimestamp')
-                : formatDateLabel(new Date(createdAtMs).toISOString()),
+                ? translate('common.pendingTimestamp', {}, language)
+                : formatDateLabel(new Date(createdAtMs).toISOString(), language),
             subtle: true,
           },
           {
-            label: translate('discovery.distanceFact'),
-            value: formatDistanceLabel(distanceKm),
+            label: translate('discovery.distanceFact', {}, language),
+            value: formatDistanceLabel(distanceKm, language),
             subtle: true,
           },
         ],
@@ -708,7 +750,7 @@ export function buildDiscoverySpotItems(
         commentCount,
         likeCount,
         saved,
-        updatedLabel: formatRelativeTime(createdAtMs, nowMs),
+        updatedLabel: formatRelativeTime(createdAtMs, nowMs, language),
       };
     })
     .sort((left, right) => right.rankingScore - left.rankingScore);
@@ -720,6 +762,7 @@ export function buildDiscoveryEventItems(
 ) {
   const browserLocation = options.browserLocation ?? null;
   const nowMs = options.nowMs ?? Date.now();
+  const language = options.language;
   const nearbyPostsCountByLocation = createNearbyPostsCountMap(options.posts ?? [], nowMs);
 
   return events
@@ -733,13 +776,14 @@ export function buildDiscoveryEventItems(
         event,
         nowMs,
         nearbyActivityCount,
+        language,
       });
-      const startLabel = formatDateLabel(event.startTime);
-      const endLabel = formatDateLabel(event.endTime);
+      const startLabel = formatDateLabel(event.startTime, language);
+      const endLabel = formatDateLabel(event.endTime, language);
       const title = event.title;
-      const areaLabel = getAreaLabel(event);
-      const venueLabel = getEventVenueLabel(event);
-      const organizerLabel = getEventOrganizerLabel(event);
+      const areaLabel = getAreaLabel(event, language);
+      const venueLabel = getEventVenueLabel(event, language);
+      const organizerLabel = getEventOrganizerLabel(event, language);
       const isActiveNow = trustSignals.some(signal => signal.id === 'active-now');
       const rankingScore =
         getSearchScore(options.searchQuery, [
@@ -763,34 +807,34 @@ export function buildDiscoveryEventItems(
         eventId: event.id,
         rawEvent: event,
         title,
-        categoryLabel: formatCategoryLabel(event.category),
+        categoryLabel: formatCategoryLabel(event.category, language),
         areaLabel,
-        locationLabel: formatLocationLabel(event),
-        distanceLabel: formatDistanceLabel(distanceKm),
+        locationLabel: formatLocationLabel(event, language),
+        distanceLabel: formatDistanceLabel(distanceKm, language),
         description: event.description,
         summary: event.description,
         hero: {
           imageUrl: event.heroImageUrl ?? null,
-          eyebrow: translate('explore.promotedEvent'),
+          eyebrow: translate('explore.promotedEvent', {}, language),
           title,
           subtitle: areaLabel,
           badgeLabel: trustSignals[0]?.label ?? null,
           badgeTone: trustSignals[0]?.tone,
         },
         trustSignals,
-        socialSignal: createEventSocialSignal(nearbyActivityCount),
+        socialSignal: createEventSocialSignal(nearbyActivityCount, language),
         facts: [
-          { label: translate('discovery.venueFact'), value: venueLabel },
-          { label: translate('discovery.startsFact'), value: startLabel, subtle: true },
-          { label: translate('discovery.endsFact'), value: endLabel, subtle: true },
+          { label: translate('discovery.venueFact', {}, language), value: venueLabel },
+          { label: translate('discovery.startsFact', {}, language), value: startLabel, subtle: true },
+          { label: translate('discovery.endsFact', {}, language), value: endLabel, subtle: true },
           {
-            label: translate('discovery.organizerFact'),
+            label: translate('discovery.organizerFact', {}, language),
             value: organizerLabel,
             subtle: true,
           },
           {
-            label: translate('discovery.distanceFact'),
-            value: formatDistanceLabel(distanceKm),
+            label: translate('discovery.distanceFact', {}, language),
+            value: formatDistanceLabel(distanceKm, language),
             subtle: true,
           },
         ],

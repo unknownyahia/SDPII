@@ -13,6 +13,8 @@ export type AppProfile = {
   bio: string;
   language: AppLanguage;
   privacyMode: boolean;
+  emailNotifications: boolean;
+  marketingEmails: boolean;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -25,4 +27,5 @@ export type CreateAppProfileInput = Omit<
 export type UpdateAppProfileInput = Pick<
   AppProfile,
   'username' | 'bio' | 'language' | 'privacyMode'
->;
+> &
+  Partial<Pick<AppProfile, 'emailNotifications' | 'marketingEmails'>>;

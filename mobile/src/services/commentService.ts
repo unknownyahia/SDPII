@@ -8,6 +8,8 @@ import type { PostComment } from '../types/comment';
 
 export class CommentValidationError extends Error {}
 
+const MAX_COMMENT_TEXT_LENGTH = 500;
+
 type AddCommentInput = {
   postId: string;
   userId: string | null | undefined;
@@ -30,6 +32,12 @@ export async function addCommentToPost(input: AddCommentInput) {
   const normalizedText = input.text.trim();
   if (!normalizedText) {
     throw new CommentValidationError('Comment text cannot be empty.');
+  }
+
+  if (normalizedText.length > MAX_COMMENT_TEXT_LENGTH) {
+    throw new CommentValidationError(
+      `Comment text must be ${MAX_COMMENT_TEXT_LENGTH} characters or fewer.`
+    );
   }
 
   const result = await createComment({

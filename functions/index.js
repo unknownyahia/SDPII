@@ -21,6 +21,23 @@ function getOpenAIClient() {
   return new OpenAI({apiKey});
 }
 
+function getOpenAIErrorCode(error) {
+  return error?.code || error?.error?.code || error?.error?.type || "";
+}
+
+function getOpenAIErrorMessage(error) {
+  return error?.message || error?.error?.message || "";
+}
+
+function logOpenAIError(error) {
+  console.error("OpenAI error:", {
+    name: error?.name || null,
+    status: error?.status || null,
+    code: getOpenAIErrorCode(error) || null,
+    message: getOpenAIErrorMessage(error) || "Unknown OpenAI error.",
+  });
+}
+
 const XP_RULES = {
   postCreated: 10,
   commentCreated: 4,
@@ -454,10 +471,71 @@ ${joinedPosts}
 
     return { summary };
   } catch (err) {
-    console.error("OpenAI error:", err);
+    if (err instanceof functions.https.HttpsError) {
+      throw err;
+    }
+
+    const openAIErrorCode = getOpenAIErrorCode(err);
+    const openAIErrorMessage = getOpenAIErrorMessage(err).toLowerCase();
+
+    logOpenAIError(err);
+
+    if (
+      openAIErrorCode === "insufficient_quota" ||
+      openAIErrorMessage.includes("exceeded your current quota")
+    ) {
+      throw new functions.https.HttpsError(
+        "resource-exhausted",
+        "Area summary is temporarily unavailable because OpenAI quota is exhausted."
+      );
+    }
+
     throw new functions.https.HttpsError(
       "internal",
       "Failed to generate summary"
     );
   }
+});
+
+exports.getLeaderboard = functions.runWith({
+  serviceAccount: DEFAULT_FUNCTION_SERVICE_ACCOUNT,
+}).https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      "unauthenticated",
+      "Authentication is required."
+    );
+  }
+
+  const requestedLimit = typeof data?.limit === "number" ? data.limit : 10;
+  const safeLimit = Math.max(3, Math.min(25, requestedLimit));
+
+  const snapshot = await db.collection("users")
+    .orderBy("xp", "desc")
+    .limit(safeLimit)
+    .get();
+
+  const entries = snapshot.docs.map((doc, index) => {
+    const profile = doc.data() || {};
+    const username = typeof profile.username === "string" &&
+      profile.username.trim() ?
+      profile.username.trim() : null;
+    const email = typeof profile.email === "string" ? profile.email : null;
+    const privacyMode = profile.privacyMode === true;
+
+    return {
+      userId: doc.id,
+      rank: index + 1,
+      displayName: privacyMode ?
+        "Private Spots user" :
+        username || email || "Spots user",
+      xp: typeof profile.xp === "number" ? profile.xp : 0,
+      role: typeof profile.role === "string" ? profile.role : "user",
+      badgeCount: Array.isArray(profile.badgeKeys) ?
+        profile.badgeKeys.length : 0,
+      isCurrentUser: doc.id === context.auth.uid,
+    };
+  });
+
+  return {entries};
 });

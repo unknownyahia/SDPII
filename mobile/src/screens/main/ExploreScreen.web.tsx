@@ -1,54 +1,39 @@
 import React from 'react';
 import {
-  Platform,
+  ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { RouteProp, useIsFocused, useRoute } from '@react-navigation/native';
 
-import { ExploreMapSurface } from '../../components/explore/ExploreMapSurface.web';
-import { DiscoveryFilterBar } from '../../components/explore/DiscoveryFilterBar';
-import { EventCard } from '../../components/explore/EventCard';
-import { EventDetailPanel } from '../../components/explore/EventDetailPanel';
-import { SpotCard } from '../../components/explore/SpotCard';
-import { SpotDetailPanel } from '../../components/explore/SpotDetailPanel';
-import { PrimaryButton, SecondaryButton } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
-import { FilterChip } from '../../components/ui/Chip';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LoadingState } from '../../components/ui/LoadingState';
-import { ScreenContainer } from '../../components/ui/ScreenContainer';
-import { Section } from '../../components/ui/Section';
 import { StatusBanner } from '../../components/ui/StatusBanner';
-import { TextField } from '../../components/ui/TextField';
+import { ExploreMapSurface } from '../../components/explore/ExploreMapSurface.web';
+import { PostInteractionPanel } from '../../components/explore/PostInteractionPanel';
+import {
+  EXPLORE_CATEGORY_OPTIONS,
+  getCategoryOptionLabel,
+  isExploreCategoryId,
+  type ExploreCategoryId,
+} from '../../constants/categories';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalization } from '../../context/LocalizationContext';
-import { getReportReasonLabel } from '../../i18n';
 import { subscribeToEvents } from '../../repositories/eventRepository';
 import { subscribeToPosts } from '../../repositories/postsRepository';
-import {
-  addCommentToPost,
-  CommentValidationError,
-  deleteOwnComment,
-  observeCommentCountsByPost,
-  observeCommentsForPost,
-} from '../../services/commentService';
+import { observeCommentCountsByPost } from '../../services/commentService';
 import {
   buildDiscoveryEventItems,
   buildDiscoverySpotItems,
-  diversifyDiscoveryItems,
-  formatRelativeTime,
+  calculateDistanceKm,
   getTimestampMs,
 } from '../../services/discoveryService';
-import {
-  filterExploreEvents,
-  filterExplorePosts,
-  type CategoryFilter,
-} from '../../services/exploreService';
 import {
   FavoriteValidationError,
   observeFavoritePostIds,
@@ -56,364 +41,423 @@ import {
 } from '../../services/favoriteService';
 import {
   getCurrentCoordinates,
+  getLocationDisplayName,
   requestForegroundLocationPermission,
 } from '../../services/locationService';
-import {
-  observeLikeCountsByPost,
-  ReactionValidationError,
-  observeLikeUserIdsForPost,
-  togglePostLike,
-} from '../../services/reactionService';
-import {
-  ReportValidationError,
-  submitReport,
-} from '../../services/reportService';
+import { observeLikeCountsByPost } from '../../services/reactionService';
 import { summarizeAreaPosts } from '../../services/summaryService';
-import { colors, radius, spacing, typography } from '../../theme/designSystem';
-import {
-  webDesktopChip,
-  webDesktopControl,
-  webDesktopLayout,
-  webDesktopSectionTitle,
-  webDesktopSupportSurface,
-  webDesktopSurface,
-} from '../../theme/webDesktopSystem';
+import { filterExploreEvents, filterExplorePosts } from '../../services/exploreService';
+import { webDesktopColors, webDesktopLayout } from '../../theme/webDesktopSystem';
 import {
   getBlockedDataMessage,
   getErrorMessage,
   isDataAccessBlockedError,
 } from '../../utils/dataAccessError';
-import type { PostComment } from '../../types/comment';
+import { showAlert } from '../../utils/showAlert';
 import type { PromotedEvent } from '../../types/event';
+import type { MainTabParamList } from '../../navigation/types';
 import type { SpotPost } from '../../types/post';
-import type { ReportReason, ReportTargetType } from '../../types/report';
 
-const FILTER_IDS: readonly CategoryFilter[] = [
-  'all',
-  'fishing',
-  'event',
-  'sighting',
-  'weather',
-];
+type ExploreChipId = ExploreCategoryId;
 
-const REPORT_REASONS: readonly ReportReason[] = [
-  'spam',
-  'misleading',
-  'offensive',
-  'unsafe',
-  'other',
-];
-
-type BrowserCoordinates = {
+type ExploreCard = {
+  id: string;
+  kind: 'spot' | 'event';
+  sourceId: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  timeLabel: string;
+  distanceLabel: string;
+  imageUrl: string;
+  signal?: 'trending' | 'promoted';
+  ratingLabel?: string;
+  saved: boolean;
+  postId?: string;
   latitude: number;
   longitude: number;
+  rankingScore: number;
+  createdAt?: unknown;
+  rawPost?: SpotPost;
+  rawEvent?: PromotedEvent;
 };
 
-type SelectedResult =
-  | { kind: 'post'; id: string }
-  | { kind: 'event'; id: string };
-
-type BannerTone = 'neutral' | 'warning' | 'success';
-
-type BannerState = {
-  tone: BannerTone;
-  title: string;
-  body: string;
+type MapBounds = {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
 };
 
-function formatReasonLabel(reason: ReportReason) {
-  return getReportReasonLabel(reason);
-}
+type SortMode = 'recommended' | 'nearest' | 'recent';
 
-function formatTimestampLabel(
-  value: unknown,
-  t: (key: string) => string
-) {
-  const relative = formatRelativeTime(getTimestampMs(value));
-  if (relative) {
-    return relative;
+const CHIPS = EXPLORE_CATEGORY_OPTIONS;
+
+function getCopy(language: 'en' | 'ar') {
+  if (language === 'ar') {
+    return {
+      what: 'ماذا',
+      where: 'أين',
+      whatPlaceholder: 'قهوة، أماكن دراسة، فعاليات...',
+      wherePlaceholder: 'قطر، مدينة، أو منطقة',
+      results: 'نتائج',
+      inQatar: 'في قطر',
+      sortBy: 'ترتيب حسب',
+      sortLabels: {
+        recommended: 'الأفضل',
+        nearest: 'الأقرب',
+        recent: 'الأحدث',
+      },
+      areaSummary: 'ملخص المنطقة',
+      nearMe: 'بالقرب مني',
+      searchAsMove: 'ابحث أثناء تحريك الخريطة',
+      showList: 'إظهار القائمة',
+      hideList: 'إخفاء القائمة',
+      popular: 'شائع',
+      promoted: 'مميز',
+      eventToday: 'فعالية',
+      noResultsTitle: 'لا توجد نتائج',
+      noResultsBody: 'جرّب فئة أخرى أو ابحث في منطقة مختلفة.',
+      dataIssueTitle: 'قد تكون بعض النتائج ناقصة.',
+      retry: 'إعادة المحاولة',
+      summaryTitle: 'ملخص المنطقة',
+      summaryEmpty: 'لا توجد نتائج كافية لتلخيص هذه المنطقة.',
+      summaryError: 'تعذر إنشاء الملخص الآن.',
+      summaryPrompt: 'أنشئ ملخصًا حقيقيًا من النتائج الظاهرة في القائمة والخريطة.',
+      generateSummary: 'لخّص',
+      locationDeniedTitle: 'تعذر قراءة موقع المتصفح',
+      locationEnabledTitle: 'تم تفعيل الموقع',
+      savedTitle: 'تم حفظ المكان',
+      unsavedTitle: 'تمت إزالة الحفظ',
+      saveErrorTitle: 'تعذر تحديث الحفظ',
+      detailsTitle: 'تفاصيل النتيجة',
+    };
   }
 
-  return t('common.pendingTimestamp');
+  return {
+    what: 'What',
+    where: 'Where',
+    whatPlaceholder: 'Coffee, study spots, events...',
+    wherePlaceholder: 'Qatar, city, or area',
+    results: 'results',
+    inQatar: 'in Qatar',
+    sortBy: 'Sort by',
+    sortLabels: {
+      recommended: 'Recommended',
+      nearest: 'Nearest',
+      recent: 'Recent',
+    },
+    areaSummary: 'Area Summary',
+    nearMe: 'Near Me',
+    searchAsMove: 'Search as I move the map',
+    showList: 'Show list',
+    hideList: 'Hide list',
+    popular: 'Popular',
+    promoted: 'Promoted',
+    eventToday: 'Event today',
+    noResultsTitle: 'No results',
+    noResultsBody: 'Try another filter or search in a different area.',
+    dataIssueTitle: 'Some results may be missing.',
+    retry: 'Retry',
+    summaryTitle: 'Area summary',
+    summaryEmpty: 'There are not enough results in this view to summarize.',
+    summaryError: 'Unable to generate an area summary right now.',
+    summaryPrompt: 'Generate a real summary from the results currently visible in the list and map.',
+    generateSummary: 'Summarize',
+    locationDeniedTitle: 'Browser location could not be read',
+    locationEnabledTitle: 'Location enabled',
+    savedTitle: 'Saved to favorites',
+    unsavedTitle: 'Removed from favorites',
+    saveErrorTitle: 'Could not update saved state',
+    detailsTitle: 'Result details',
+  };
 }
 
-function CommentCard({
-  comment,
-  canDelete,
-  deleting,
-  onDelete,
-  onReport,
-}: {
-  comment: PostComment;
-  canDelete: boolean;
-  deleting: boolean;
-  onDelete: () => void;
-  onReport: () => void;
-}) {
-  const { getRowDirection, getTextAlign, isRTL, t } = useLocalization();
+function normalize(value: string) {
+  return value.trim().toLowerCase();
+}
 
+function hasValidCoordinate(card: Pick<ExploreCard, 'latitude' | 'longitude'>) {
   return (
-    <View style={styles.commentCard}>
-      <View style={[styles.commentHeader, { flexDirection: getRowDirection() }]}>
-        <View style={styles.commentHeaderCopy}>
-          <Text
-            style={[
-              styles.commentAuthor,
-              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-            ]}
-          >
-            {comment.authorLabel}
-          </Text>
-          <Text
-            style={[
-              styles.commentTimestamp,
-              { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-            ]}
-          >
-            {formatTimestampLabel(comment.createdAt, key => t(key))}
-          </Text>
-        </View>
-
-        <View style={[styles.commentActionsInline, { flexDirection: getRowDirection() }]}>
-          <Pressable onPress={onReport}>
-            <Text
-              style={[
-                styles.commentActionText,
-                { writingDirection: isRTL ? 'rtl' : 'ltr' },
-              ]}
-            >
-              {t('explore.report')}
-            </Text>
-          </Pressable>
-          {canDelete ? (
-            <Pressable onPress={onDelete} disabled={deleting}>
-              <Text
-                style={[
-                  styles.commentActionText,
-                  styles.commentDeleteText,
-                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-              >
-                {deleting ? t('explore.deleting') : t('explore.delete')}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
-
-      <Text
-        style={[
-          styles.commentBody,
-          { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-        ]}
-      >
-        {comment.text}
-      </Text>
-    </View>
+    Number.isFinite(card.latitude) &&
+    Number.isFinite(card.longitude) &&
+    Math.abs(card.latitude) <= 90 &&
+    Math.abs(card.longitude) <= 180
   );
+}
+
+function isCardInsideBounds(card: Pick<ExploreCard, 'latitude' | 'longitude'>, bounds: MapBounds) {
+  return (
+    card.latitude <= bounds.north &&
+    card.latitude >= bounds.south &&
+    card.longitude <= bounds.east &&
+    card.longitude >= bounds.west
+  );
+}
+
+function areMapBoundsEqual(a: MapBounds | null, b: MapBounds) {
+  if (!a) {
+    return false;
+  }
+
+  const threshold = 0.00001;
+  return (
+    Math.abs(a.north - b.north) < threshold &&
+    Math.abs(a.south - b.south) < threshold &&
+    Math.abs(a.east - b.east) < threshold &&
+    Math.abs(a.west - b.west) < threshold
+  );
+}
+
+function formatEventTime(value: unknown, language: 'en' | 'ar') {
+  const timestampMs = getTimestampMs(value);
+
+  if (timestampMs === null) {
+    return language === 'ar' ? 'اليوم - لاحقا' : 'Today - Time soon';
+  }
+
+  const date = new Date(timestampMs);
+  const locale = language === 'ar' ? 'ar-QA' : 'en-US';
+  const today = new Date();
+  const sameDay =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+
+  const timeLabel = new Intl.DateTimeFormat(locale, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+
+  if (sameDay) {
+    return language === 'ar' ? `اليوم - ${timeLabel}` : `Today - ${timeLabel}`;
+  }
+
+  const shortDate = new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+
+  return `${shortDate} - ${timeLabel}`;
+}
+
+function formatSpotTime(value: unknown, language: 'en' | 'ar') {
+  const timestampMs = getTimestampMs(value);
+
+  if (timestampMs === null) {
+    return language === 'ar' ? 'اليوم' : 'Today';
+  }
+
+  const locale = language === 'ar' ? 'ar-QA' : 'en-US';
+  return new Intl.DateTimeFormat(locale, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(timestampMs));
+}
+
+function getCardImage(imageUrl?: string | null) {
+  if (imageUrl && imageUrl.trim().length > 0) {
+    return imageUrl;
+  }
+
+  return 'https://images.unsplash.com/photo-1658863714664-bced34d5606f?auto=format&fit=crop&w=1200&q=80';
+}
+
+function getSpotRatingLabel(commentCount: number, likeCount: number) {
+  const engagement = Math.max(commentCount + likeCount, 1);
+  const value = (4.3 + Math.min(0.6, engagement * 0.02)).toFixed(1);
+  return `${value} (${engagement})`;
+}
+
+function getNextSortMode(current: SortMode): SortMode {
+  if (current === 'recommended') {
+    return 'nearest';
+  }
+
+  if (current === 'nearest') {
+    return 'recent';
+  }
+
+  return 'recommended';
 }
 
 export function ExploreScreen() {
+  const route = useRoute<RouteProp<MainTabParamList, 'Explore'>>();
+  const isFocused = useIsFocused();
+  const searchInputRef = React.useRef<TextInput>(null);
   const { user } = useAuth();
-  const { getRowDirection, getTextAlign, isRTL, language, t } = useLocalization();
-  const { width, height } = useWindowDimensions();
-  const isWeb = Platform.OS === 'web';
-  const hasToolbarColumns = isWeb && width >= 960;
-  const hasWorkspaceColumns = isWeb && width >= 1120;
-  const useFixedWorkspace = isWeb && width >= 1120;
-  const [events, setEvents] = React.useState<PromotedEvent[]>([]);
-  const [posts, setPosts] = React.useState<SpotPost[]>([]);
+  const {
+    language,
+    isRTL,
+    getTextAlign,
+  } = useLocalization();
+  const copy = React.useMemo(() => getCopy(language), [language]);
+  const textAlign = getTextAlign();
+
   const [loading, setLoading] = React.useState(true);
-  const [selectedCategory, setSelectedCategory] =
-    React.useState<CategoryFilter>('all');
-  const [searchQuery, setSearchQuery] = React.useState('');
-  const [whereQuery, setWhereQuery] = React.useState('');
-  const [showExtraFilters, setShowExtraFilters] = React.useState(false);
-  const [mapSearchAsMove, setMapSearchAsMove] = React.useState(true);
-  const [browserLocation, setBrowserLocation] =
-    React.useState<BrowserCoordinates | null>(null);
-  const [locationLoading, setLocationLoading] = React.useState(false);
-  const [locationStatus, setLocationStatus] = React.useState<BannerState | null>(null);
-  const [selectedResult, setSelectedResult] =
-    React.useState<SelectedResult | null>(null);
-  const [summaryLoading, setSummaryLoading] = React.useState(false);
-  const [summary, setSummary] = React.useState<string | null>(null);
-  const [dataIssue, setDataIssue] = React.useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = React.useState(0);
+  const [posts, setPosts] = React.useState<SpotPost[]>([]);
+  const [events, setEvents] = React.useState<PromotedEvent[]>([]);
   const [favoritePostIds, setFavoritePostIds] = React.useState<string[]>([]);
   const [commentCountsByPostId, setCommentCountsByPostId] = React.useState<Record<string, number>>({});
   const [likeCountsByPostId, setLikeCountsByPostId] = React.useState<Record<string, number>>({});
-  const [favoriteLoading, setFavoriteLoading] = React.useState(false);
-  const [comments, setComments] = React.useState<PostComment[]>([]);
-  const [commentText, setCommentText] = React.useState('');
-  const [commentLoading, setCommentLoading] = React.useState(false);
-  const [deletingCommentId, setDeletingCommentId] = React.useState<string | null>(null);
-  const [likeUserIds, setLikeUserIds] = React.useState<string[]>([]);
-  const [likeLoading, setLikeLoading] = React.useState(false);
-  const [reportLoading, setReportLoading] = React.useState(false);
-  const [reportReason, setReportReason] = React.useState<ReportReason>('spam');
-  const [reportNote, setReportNote] = React.useState('');
-  const [reportTargetType, setReportTargetType] = React.useState<ReportTargetType>('post');
-  const [reportTargetId, setReportTargetId] = React.useState<string | null>(null);
-  const [detailFeedback, setDetailFeedback] = React.useState<BannerState | null>(null);
-  const [detailExpanded, setDetailExpanded] = React.useState(false);
-  const resultsScrollRef = React.useRef<ScrollView | null>(null);
-  const workspaceHeight = useFixedWorkspace
-    ? Math.max(620, height - 60)
-    : null;
+  const [dataIssue, setDataIssue] = React.useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = React.useState(0);
+  const [selectedChipId, setSelectedChipId] = React.useState<ExploreChipId>('all');
+  const [selectedCardId, setSelectedCardId] = React.useState<string | null>(null);
+  const [query, setQuery] = React.useState('');
+  const [location, setLocation] = React.useState(language === 'ar' ? 'قطر' : 'Qatar');
+  const [sortMode, setSortMode] = React.useState<SortMode>('recommended');
+  const [savingCardId, setSavingCardId] = React.useState<string | null>(null);
+  const [browserLocation, setBrowserLocation] = React.useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [autoSearchArea, setAutoSearchArea] = React.useState(false);
+  const [mapBounds, setMapBounds] = React.useState<MapBounds | null>(null);
+  const [isListVisible, setIsListVisible] = React.useState(true);
+  const [summaryLoading, setSummaryLoading] = React.useState(false);
+  const [areaSummary, setAreaSummary] = React.useState<string | null>(null);
+
+  const activeChip = React.useMemo(
+    () => CHIPS.find(chip => chip.id === selectedChipId) ?? CHIPS[0],
+    [selectedChipId]
+  );
+
+  const routeParamKey = JSON.stringify(route.params ?? {});
+  const lastAppliedRouteParamKeyRef = React.useRef('');
+
+  React.useEffect(() => {
+    const defaultWhereLabel = language === 'ar' ? 'قطر' : 'Qatar';
+    setLocation(current => {
+      const normalized = normalize(current);
+      if (!current.trim() || normalized === 'qatar' || current.trim() === 'قطر') {
+        return defaultWhereLabel;
+      }
+
+      return current;
+    });
+  }, [language]);
+
+  React.useEffect(() => {
+    const params = route.params;
+
+    if (!params || routeParamKey === lastAppliedRouteParamKeyRef.current) {
+      return undefined;
+    }
+
+    lastAppliedRouteParamKeyRef.current = routeParamKey;
+
+    if (typeof params.query === 'string') {
+      setQuery(params.query);
+    }
+
+    if (typeof params.where === 'string' && params.where.trim()) {
+      setLocation(params.where);
+    }
+
+    if (isExploreCategoryId(params.chipId)) {
+      setSelectedChipId(params.chipId);
+    }
+
+    setSelectedCardId(null);
+
+    if (!params.focusSearch) {
+      return undefined;
+    }
+
+    const focusTimer = setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 80);
+
+    return () => clearTimeout(focusTimer);
+  }, [route.params, routeParamKey]);
 
   const handleDataIssue = React.useCallback(
     (error: unknown, fallbackMessage: string) => {
-      const nextMessage = isDataAccessBlockedError(error)
-        ? getBlockedDataMessage('one or more Explore data feeds')
-        : getErrorMessage(error, fallbackMessage);
-
-      setDataIssue(current => current ?? nextMessage);
+      setDataIssue(
+        isDataAccessBlockedError(error)
+          ? getBlockedDataMessage(language === 'ar' ? 'بيانات الاستكشاف' : 'Explore data')
+          : getErrorMessage(error, fallbackMessage)
+      );
     },
-    []
+    [language]
   );
 
-  const handleRetry = React.useCallback(() => {
-    setDataIssue(null);
-    setLoading(true);
-    setRefreshToken(current => current + 1);
-  }, []);
-
-  const handleShowResultsList = React.useCallback(() => {
-    setDetailExpanded(false);
-    resultsScrollRef.current?.scrollTo({
-      y: 0,
-      animated: true,
-    });
-  }, []);
-
   React.useEffect(() => {
-    const unsubscribe = subscribeToPosts(
+    setLoading(true);
+    setDataIssue(null);
+
+    const unsubscribePosts = subscribeToPosts(
       nextPosts => {
         setPosts(nextPosts);
         setLoading(false);
       },
       error => {
+        handleDataIssue(error, 'Failed to load Explore posts.');
         setLoading(false);
-        handleDataIssue(error, 'Failed to load posts.');
       }
     );
 
-    return unsubscribe;
-  }, [handleDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const unsubscribe = subscribeToEvents(setEvents, error => {
-      handleDataIssue(error, 'Failed to load events.');
-    });
-    return unsubscribe;
-  }, [handleDataIssue, refreshToken]);
-
-  React.useEffect(() => {
-    const unsubscribe = observeFavoritePostIds(
-      user?.id,
-      setFavoritePostIds,
+    const unsubscribeEvents = subscribeToEvents(
+      nextEvents => {
+        setEvents(nextEvents);
+      },
       error => {
-        handleDataIssue(error, 'Failed to load favorites.');
+        handleDataIssue(error, 'Failed to load Explore events.');
       }
     );
-    return unsubscribe;
+
+    return () => {
+      unsubscribePosts();
+      unsubscribeEvents();
+    };
+  }, [handleDataIssue, refreshToken]);
+
+  React.useEffect(() => {
+    return observeFavoritePostIds(
+      user?.id,
+      ids => setFavoritePostIds(ids),
+      error => handleDataIssue(error, 'Failed to load saved spots.')
+    );
   }, [handleDataIssue, refreshToken, user?.id]);
 
   React.useEffect(() => {
-    const unsubscribe = observeCommentCountsByPost(
-      setCommentCountsByPostId,
-      error => {
-        handleDataIssue(error, 'Failed to load comment counts.');
-      }
+    return observeCommentCountsByPost(
+      counts => setCommentCountsByPostId(counts),
+      error => handleDataIssue(error, 'Failed to load comments.')
     );
-    return unsubscribe;
   }, [handleDataIssue, refreshToken]);
 
   React.useEffect(() => {
-    const unsubscribe = observeLikeCountsByPost(
-      setLikeCountsByPostId,
-      error => {
-        handleDataIssue(error, 'Failed to load like counts.');
-      }
+    return observeLikeCountsByPost(
+      counts => setLikeCountsByPostId(counts),
+      error => handleDataIssue(error, 'Failed to load likes.')
     );
-    return unsubscribe;
   }, [handleDataIssue, refreshToken]);
 
-  const selectedPostId = selectedResult?.kind === 'post' ? selectedResult.id : null;
+  const activeWhereQuery = React.useMemo(() => {
+    const trimmed = location.trim();
+    const normalized = normalize(trimmed);
 
-  React.useEffect(() => {
-    const unsubscribe = observeCommentsForPost(
-      selectedPostId,
-      setComments,
-      error => {
-        handleDataIssue(error, 'Failed to load comments.');
-      }
-    );
-    return unsubscribe;
-  }, [handleDataIssue, selectedPostId]);
+    if (!trimmed || normalized === 'qatar' || trimmed === 'قطر') {
+      return '';
+    }
 
-  React.useEffect(() => {
-    const unsubscribe = observeLikeUserIdsForPost(
-      selectedPostId,
-      setLikeUserIds,
-      error => {
-        handleDataIssue(error, 'Failed to load likes.');
-      }
-    );
-    return unsubscribe;
-  }, [handleDataIssue, selectedPostId]);
+    if (normalized === 'near me') {
+      return '';
+    }
 
-  React.useEffect(() => {
-    setSummary(null);
-  }, [searchQuery, selectedCategory, whereQuery]);
-
-  React.useEffect(() => {
-    setCommentText('');
-    setReportTargetId(null);
-    setReportReason('spam');
-    setReportNote('');
-    setDetailFeedback(null);
-    setDetailExpanded(false);
-  }, [selectedResult?.id]);
+    return normalized;
+  }, [location]);
 
   const filteredPosts = React.useMemo(
-    () => {
-      const baseResults = filterExplorePosts(posts, selectedCategory, searchQuery);
-      const normalizedWhereQuery = whereQuery.trim().toLowerCase();
-
-      if (!normalizedWhereQuery) {
-        return baseResults;
-      }
-
-      return baseResults.filter(post => {
-        const fields = [post.locationName ?? '', post.text];
-        return fields.some(field => field.toLowerCase().includes(normalizedWhereQuery));
-      });
-    },
-    [posts, searchQuery, selectedCategory, whereQuery]
+    () => filterExplorePosts(posts, activeChip.id, query),
+    [activeChip.id, posts, query]
   );
+
   const filteredEvents = React.useMemo(
-    () => {
-      const baseResults = filterExploreEvents(events, selectedCategory, searchQuery);
-      const normalizedWhereQuery = whereQuery.trim().toLowerCase();
-
-      if (!normalizedWhereQuery) {
-        return baseResults;
-      }
-
-      return baseResults.filter(event => {
-        const fields = [
-          event.locationName ?? '',
-          event.venueName ?? '',
-          event.title,
-          event.description,
-        ];
-
-        return fields.some(field => field.toLowerCase().includes(normalizedWhereQuery));
-      });
-    },
-    [events, searchQuery, selectedCategory, whereQuery]
+    () => filterExploreEvents(events, activeChip.id, query),
+    [activeChip.id, events, query]
   );
 
   const discoverySpotItems = React.useMemo(
@@ -423,15 +467,17 @@ export function ExploreScreen() {
         likeCountsByPostId,
         favoritePostIds,
         browserLocation,
-        searchQuery,
+        searchQuery: query,
+        language,
       }),
     [
       browserLocation,
       commentCountsByPostId,
       favoritePostIds,
       filteredPosts,
+      language,
       likeCountsByPostId,
-      searchQuery,
+      query,
     ]
   );
 
@@ -440,1604 +486,1049 @@ export function ExploreScreen() {
       buildDiscoveryEventItems(filteredEvents, {
         posts: filteredPosts,
         browserLocation,
-        searchQuery,
+        searchQuery: query,
+        language,
       }),
-    [browserLocation, filteredEvents, filteredPosts, searchQuery]
-  );
-  const rankedResults = React.useMemo(
-    () =>
-      diversifyDiscoveryItems(
-        [...discoverySpotItems, ...discoveryEventItems].sort(
-          (left, right) => right.rankingScore - left.rankingScore
-        )
-      ),
-    [discoveryEventItems, discoverySpotItems]
+    [browserLocation, filteredEvents, filteredPosts, language, query]
   );
 
-  const favoritePostIdSet = React.useMemo(() => new Set(favoritePostIds), [favoritePostIds]);
-  const likeUserIdSet = React.useMemo(() => new Set(likeUserIds), [likeUserIds]);
+  const allCards = React.useMemo<ExploreCard[]>(() => {
+    const spotCards: ExploreCard[] = discoverySpotItems.map(spot => ({
+      id: `spot-${spot.postId}`,
+      kind: 'spot',
+      sourceId: spot.postId,
+      title: spot.title,
+      subtitle: `${spot.locationLabel} - ${spot.areaLabel}`,
+      description: spot.summary || spot.description,
+      timeLabel: formatSpotTime(spot.rawPost.createdAt, language),
+      distanceLabel: spot.distanceLabel,
+      imageUrl: getCardImage(spot.hero.imageUrl),
+      signal: spot.trustSignals.some(signal => signal.id === 'popular-now')
+        ? 'trending'
+        : undefined,
+      ratingLabel: getSpotRatingLabel(spot.commentCount, spot.likeCount),
+      saved: spot.saved,
+      postId: spot.postId,
+      latitude: spot.rawPost.lat,
+      longitude: spot.rawPost.lng,
+      rankingScore: spot.rankingScore,
+      createdAt: spot.rawPost.createdAt,
+      rawPost: spot.rawPost,
+    }));
 
-  const selectedPost =
-    selectedResult?.kind === 'post'
-      ? filteredPosts.find(post => post.id === selectedResult.id) ?? null
-      : null;
-  const selectedSpotItem =
-    selectedResult?.kind === 'post'
-      ? discoverySpotItems.find(item => item.postId === selectedResult.id) ?? null
-      : null;
-  const selectedEventItem =
-    selectedResult?.kind === 'event'
-      ? discoveryEventItems.find(item => item.eventId === selectedResult.id) ?? null
-      : null;
-  const totalVisible = filteredPosts.length + filteredEvents.length;
-  const hasNoResults = totalVisible === 0;
-  const filterOptions = React.useMemo(
-    () =>
-      FILTER_IDS.map(id => ({
-        id,
-        label: t(`category.${id}`),
-      })),
-    [t]
-  );
+    const eventCards: ExploreCard[] = discoveryEventItems.map(event => ({
+      id: `event-${event.eventId}`,
+      kind: 'event',
+      sourceId: event.eventId,
+      title: event.title,
+      subtitle: `${event.venueLabel} - ${event.areaLabel}`,
+      description: event.summary || event.description,
+      timeLabel: formatEventTime(event.rawEvent.startTime, language),
+      distanceLabel: event.distanceLabel,
+      imageUrl: getCardImage(event.hero.imageUrl),
+      signal: event.rawEvent.isPromoted ? 'promoted' : undefined,
+      saved: false,
+      latitude: event.rawEvent.lat,
+      longitude: event.rawEvent.lng,
+      rankingScore: event.rankingScore,
+      createdAt: event.rawEvent.startTime,
+      rawEvent: event.rawEvent,
+    }));
 
-  const handleSelectPost = React.useCallback((post: SpotPost) => {
-    const isSameSelection =
-      selectedResult?.kind === 'post' && selectedResult.id === post.id;
+    return [...spotCards, ...eventCards]
+      .filter(hasValidCoordinate)
+      .filter(card => {
+        if (!activeWhereQuery) {
+          return true;
+        }
 
-    setSelectedResult({ kind: 'post', id: post.id });
-    setDetailExpanded(current => (isSameSelection ? !current : false));
-  }, [selectedResult]);
+        return normalize(`${card.title} ${card.subtitle} ${card.description}`).includes(
+          activeWhereQuery
+        );
+      });
+  }, [activeWhereQuery, discoveryEventItems, discoverySpotItems, language]);
 
-  const handleSelectEvent = React.useCallback((event: PromotedEvent) => {
-    const isSameSelection =
-      selectedResult?.kind === 'event' && selectedResult.id === event.id;
+  const cards = React.useMemo(() => {
+    const scopedCards =
+      autoSearchArea && mapBounds
+        ? allCards.filter(card => isCardInsideBounds(card, mapBounds))
+        : allCards;
 
-    setSelectedResult({ kind: 'event', id: event.id });
-    setDetailExpanded(current => (isSameSelection ? !current : false));
-  }, [selectedResult]);
+    const sorted = [...scopedCards].sort((a, b) => {
+      if (sortMode === 'recent') {
+        return (getTimestampMs(b.createdAt) ?? 0) - (getTimestampMs(a.createdAt) ?? 0);
+      }
+
+      if (sortMode === 'nearest' && browserLocation) {
+        return (
+          calculateDistanceKm(browserLocation, { lat: a.latitude, lng: a.longitude }) -
+          calculateDistanceKm(browserLocation, { lat: b.latitude, lng: b.longitude })
+        );
+      }
+
+      return b.rankingScore - a.rankingScore;
+    });
+
+    return sorted.slice(0, 12);
+  }, [allCards, autoSearchArea, browserLocation, mapBounds, sortMode]);
 
   React.useEffect(() => {
-    const hasSelectedPost =
-      selectedResult?.kind === 'post' &&
-      rankedResults.some(
-        item => item.kind === 'spot' && item.postId === selectedResult.id
-      );
-    const hasSelectedEvent =
-      selectedResult?.kind === 'event' &&
-      rankedResults.some(
-        item => item.kind === 'event' && item.eventId === selectedResult.id
-      );
-
-    if (hasSelectedPost || hasSelectedEvent) {
+    if (cards.length === 0) {
+      setSelectedCardId(null);
       return;
     }
 
-    if (rankedResults[0]) {
-      setSelectedResult(
-        rankedResults[0].kind === 'spot'
-          ? { kind: 'post', id: rankedResults[0].postId }
-          : { kind: 'event', id: rankedResults[0].eventId }
-      );
-      return;
+    if (!selectedCardId || !cards.some(card => card.id === selectedCardId)) {
+      setSelectedCardId(cards[0].id);
+    }
+  }, [cards, selectedCardId]);
+
+  const selected = cards.find(item => item.id === selectedCardId) ?? cards[0] ?? null;
+  const interactionUserLabel = user?.displayInfo || user?.email || 'Spots user';
+
+  const mapSourceCards = React.useMemo(() => allCards.slice(0, 30), [allCards]);
+  const mapPosts = React.useMemo(
+    () => mapSourceCards.flatMap(card => (card.rawPost ? [card.rawPost] : [])),
+    [mapSourceCards]
+  );
+  const mapEvents = React.useMemo(
+    () => mapSourceCards.flatMap(card => (card.rawEvent ? [card.rawEvent] : [])),
+    [mapSourceCards]
+  );
+  const selectedResult = React.useMemo(() => {
+    if (!selected) {
+      return null;
     }
 
-    if (selectedResult !== null) {
-      setSelectedResult(null);
-    }
-  }, [rankedResults, selectedResult]);
+    return selected.kind === 'spot'
+      ? { kind: 'post' as const, id: selected.sourceId }
+      : { kind: 'event' as const, id: selected.sourceId };
+  }, [selected?.kind, selected?.sourceId]);
 
-  const handleGenerateSummary = async () => {
-    if (filteredPosts.length === 0) {
-      setSummary(t('explore.noSummary'));
+  const handleMapViewportChange = React.useCallback((nextBounds: MapBounds) => {
+    setMapBounds(current =>
+      areMapBoundsEqual(current, nextBounds) ? current : nextBounds
+    );
+  }, []);
+
+  const handleRetry = React.useCallback(() => {
+    setDataIssue(null);
+    setRefreshToken(value => value + 1);
+  }, []);
+
+  const handleSelectChip = React.useCallback((chipId: ExploreChipId) => {
+    setSelectedChipId(chipId);
+    setSelectedCardId(null);
+    setAreaSummary(null);
+  }, []);
+
+  const handleNearMe = React.useCallback(async () => {
+    try {
+      const permission = await requestForegroundLocationPermission();
+      if (permission.status !== 'granted') {
+        throw new Error(
+          language === 'ar'
+            ? 'اسمح للموقع من المتصفح ثم حاول مرة أخرى.'
+            : 'Allow browser location and try again.'
+        );
+      }
+
+      const coords = await getCurrentCoordinates();
+      const label = await getLocationDisplayName(coords.latitude, coords.longitude);
+      setBrowserLocation(coords);
+      setLocation(language === 'ar' ? 'بالقرب مني' : 'Near me');
+      showAlert(copy.locationEnabledTitle, label);
+    } catch (error) {
+      showAlert(copy.locationDeniedTitle, getErrorMessage(error, copy.noResultsBody));
+    }
+  }, [copy.locationDeniedTitle, copy.locationEnabledTitle, copy.noResultsBody, language]);
+
+  const handleToggleSave = React.useCallback(
+    async (card: ExploreCard) => {
+      if (!card.postId) {
+        showAlert(copy.detailsTitle, card.title);
+        return;
+      }
+
+      setSavingCardId(card.id);
+
+      try {
+        const nextSaved = await toggleFavoritePost({
+          userId: user?.id,
+          postId: card.postId,
+          isCurrentlyFavorite: card.saved,
+        });
+        showAlert(nextSaved ? copy.savedTitle : copy.unsavedTitle, card.title);
+      } catch (error) {
+        const message =
+          error instanceof FavoriteValidationError
+            ? error.message
+            : isDataAccessBlockedError(error)
+              ? getBlockedDataMessage(language === 'ar' ? 'المحفوظات' : 'saved spots')
+              : getErrorMessage(error, 'Unable to update saved state right now.');
+        showAlert(copy.saveErrorTitle, message);
+      } finally {
+        setSavingCardId(null);
+      }
+    },
+    [copy.detailsTitle, copy.saveErrorTitle, copy.savedTitle, copy.unsavedTitle, language, user?.id]
+  );
+
+  const handleAreaSummary = React.useCallback(async () => {
+    const summarizable = cards
+      .filter(card => card.rawPost || card.rawEvent)
+      .slice(0, 20)
+      .map(card => ({
+        text: card.rawPost?.text ?? card.rawEvent?.description ?? card.description,
+        category: card.rawPost?.category ?? card.rawEvent?.category,
+      }))
+      .filter(item => item.text.trim().length > 0);
+
+    if (summarizable.length === 0) {
+      setAreaSummary(copy.summaryEmpty);
       return;
     }
 
     setSummaryLoading(true);
     try {
-      const nextSummary = await summarizeAreaPosts({
-        posts: filteredPosts.map(post => ({
-          text: post.text,
-          category: post.category,
-        })),
-      });
-      setSummary(nextSummary);
-    } catch {
-      setSummary(t('explore.summaryError'));
+      const nextSummary = await summarizeAreaPosts({ posts: summarizable });
+      setAreaSummary(nextSummary);
+    } catch (error) {
+      setAreaSummary(getErrorMessage(error, copy.summaryError));
     } finally {
       setSummaryLoading(false);
     }
-  };
+  }, [cards, copy.summaryEmpty, copy.summaryError]);
 
-  const handleShareBrowserLocation = async () => {
-    setLocationLoading(true);
-    try {
-      const { status } = await requestForegroundLocationPermission();
+  const handleSelectPost = React.useCallback((post: SpotPost) => {
+    setSelectedCardId(`spot-${post.id}`);
+    setIsListVisible(true);
+  }, []);
 
-      if (status !== 'granted') {
-        setLocationStatus({
-          tone: 'warning',
-          title: t('explore.locationDeniedTitle'),
-          body: t('explore.locationDeniedBody'),
-        });
-        return;
-      }
-
-      const coords = await getCurrentCoordinates();
-      setBrowserLocation(coords);
-      setLocationStatus({
-        tone: 'success',
-        title: t('explore.locationEnabledTitle'),
-        body: t('explore.locationEnabledBody'),
-      });
-    } catch (error: any) {
-      setLocationStatus({
-        tone: 'warning',
-        title: t('explore.locationUnavailableTitle'),
-        body: error?.message ?? t('explore.locationUnavailableBody'),
-      });
-    } finally {
-      setLocationLoading(false);
-    }
-  };
-
-  const handleToggleFavorite = async () => {
-    if (!selectedPost) {
-      return;
-    }
-
-    setFavoriteLoading(true);
-    try {
-      const isFavorite = await toggleFavoritePost({
-        userId: user?.id,
-        postId: selectedPost.id,
-        isCurrentlyFavorite: favoritePostIdSet.has(selectedPost.id),
-      });
-
-      setDetailFeedback({
-        tone: 'success',
-        title: isFavorite
-          ? t('explore.savedToFavoritesTitle')
-          : t('explore.removedFromFavoritesTitle'),
-        body: isFavorite
-          ? t('explore.savedToFavoritesBody')
-          : t('explore.removedFromFavoritesBody'),
-      });
-    } catch (error: any) {
-      setDetailFeedback({
-        tone: 'warning',
-        title: t('explore.favoriteErrorTitle'),
-        body:
-          error instanceof FavoriteValidationError
-            ? error.message
-            : error?.message ?? t('explore.favoriteFailedBody'),
-      });
-    } finally {
-      setFavoriteLoading(false);
-    }
-  };
-
-  const handleToggleLike = async () => {
-    if (!selectedPost) {
-      return;
-    }
-
-    setLikeLoading(true);
-    try {
-      const isLiked = await togglePostLike({
-        postId: selectedPost.id,
-        userId: user?.id,
-        isCurrentlyLiked: !!(user?.id && likeUserIdSet.has(user.id)),
-      });
-
-      setDetailFeedback({
-        tone: 'success',
-        title: isLiked ? t('explore.likedTitle') : t('explore.unlikedTitle'),
-        body: isLiked
-          ? t('explore.likedBody')
-          : t('explore.unlikedBody'),
-      });
-    } catch (error: any) {
-      setDetailFeedback({
-        tone: 'warning',
-        title: t('explore.likeErrorTitle'),
-        body:
-          error instanceof ReactionValidationError
-            ? error.message
-            : error?.message ?? t('explore.likeFailedBody'),
-      });
-    } finally {
-      setLikeLoading(false);
-    }
-  };
-
-  const handleAddComment = async () => {
-    if (!selectedPost) {
-      return;
-    }
-
-    setCommentLoading(true);
-    try {
-      await addCommentToPost({
-        postId: selectedPost.id,
-        userId: user?.id,
-        authorLabel: user?.displayInfo,
-        text: commentText,
-      });
-      setCommentText('');
-      setDetailFeedback({
-        tone: 'success',
-        title: t('explore.commentPostedTitle'),
-        body: t('explore.commentPostedBody'),
-      });
-    } catch (error: any) {
-      setDetailFeedback({
-        tone: 'warning',
-        title: t('explore.commentErrorTitle'),
-        body:
-          error instanceof CommentValidationError
-            ? error.message
-            : error?.message ?? t('explore.commentFailedBody'),
-      });
-    } finally {
-      setCommentLoading(false);
-    }
-  };
-
-  const handleDeleteComment = async (comment: PostComment) => {
-    if (!selectedPost) {
-      return;
-    }
-
-    setDeletingCommentId(comment.id);
-    try {
-      await deleteOwnComment({
-        postId: selectedPost.id,
-        commentId: comment.id,
-        currentUserId: user?.id,
-        commentUserId: comment.userId,
-      });
-      setDetailFeedback({
-        tone: 'success',
-        title: t('explore.commentDeletedTitle'),
-        body: t('explore.commentDeletedBody'),
-      });
-    } catch (error: any) {
-      setDetailFeedback({
-        tone: 'warning',
-        title: t('explore.deleteErrorTitle'),
-        body:
-          error instanceof CommentValidationError
-            ? error.message
-            : error?.message ?? t('explore.deleteFailedBody'),
-      });
-    } finally {
-      setDeletingCommentId(null);
-    }
-  };
-
-  const openReportComposer = (targetType: ReportTargetType, targetId: string) => {
-    setReportTargetType(targetType);
-    setReportTargetId(targetId);
-    setReportReason('spam');
-    setReportNote('');
-  };
-
-  const handleSubmitReport = async () => {
-    if (!reportTargetId) {
-      return;
-    }
-
-    setReportLoading(true);
-    try {
-      await submitReport({
-        reporterUserId: user?.id,
-        targetType: reportTargetType,
-        targetId: reportTargetId,
-        targetPostId: selectedPost?.id ?? null,
-        reason: reportReason,
-        note: reportNote,
-      });
-
-      setReportTargetId(null);
-      setReportNote('');
-      setDetailFeedback({
-        tone: 'success',
-        title: t('explore.reportSubmittedTitle'),
-        body: t('explore.reportSubmittedBody'),
-      });
-    } catch (error: any) {
-      setDetailFeedback({
-        tone: 'warning',
-        title: t('explore.reportErrorTitle'),
-        body:
-          error instanceof ReportValidationError
-            ? error.message
-            : error?.message ?? t('explore.reportFailedBody'),
-      });
-    } finally {
-      setReportLoading(false);
-    }
-  };
-
-  const stickyToolbarStyle =
-    isWeb
-      ? ({
-          position: 'sticky',
-          top: 0,
-          zIndex: 12,
-        } as unknown as object)
-      : null;
-  const locationSummaryLabel = browserLocation
-    ? t('explore.locationStatusActive')
-    : locationStatus?.tone === 'warning'
-      ? t('explore.locationStatusUnavailable')
-      : null;
-  const locationContextLabel = whereQuery.trim()
-    ? whereQuery.trim()
-    : language === 'ar'
-      ? 'قطر'
-      : 'Qatar';
-  const desktopFilterOptions = React.useMemo(
-    () =>
-      language === 'ar'
-        ? [
-            { id: 'all', label: 'الكل', glyph: '' },
-            { id: 'food', label: 'مأكولات ومشروبات', glyph: '✦' },
-            { id: 'coffee', label: 'قهوة', glyph: '☕' },
-            { id: 'study', label: 'دراسة وعمل', glyph: '▣' },
-            { id: 'outdoors', label: 'خارجي', glyph: '△' },
-            { id: 'events', label: 'فعاليات', glyph: '✷' },
-            { id: 'family', label: 'عائلة', glyph: '◎' },
-            { id: 'sights', label: 'معالم', glyph: '◌' },
-            { id: 'more', label: 'المزيد من الفلاتر', glyph: '⋯' },
-          ]
-        : [
-            { id: 'all', label: 'All', glyph: '' },
-            { id: 'food', label: 'Food & Drinks', glyph: '✦' },
-            { id: 'coffee', label: 'Coffee', glyph: '☕' },
-            { id: 'study', label: 'Study & Work', glyph: '▣' },
-            { id: 'outdoors', label: 'Outdoors', glyph: '△' },
-            { id: 'events', label: 'Events', glyph: '✷' },
-            { id: 'family', label: 'Family', glyph: '◎' },
-            { id: 'sights', label: 'Sights', glyph: '◌' },
-            { id: 'more', label: 'More filters', glyph: '⋯' },
-          ],
-    [language]
-  );
-  const activeDesktopFilterId = React.useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-
-    if (showExtraFilters) {
-      return 'more';
-    }
-
-    if (!normalizedQuery && !whereQuery.trim() && selectedCategory === 'all') {
-      return 'all';
-    }
-
-    if (selectedCategory === 'event') {
-      return 'events';
-    }
-
-    if (normalizedQuery.includes('coffee')) {
-      return 'coffee';
-    }
-
-    if (normalizedQuery.includes('study')) {
-      return 'study';
-    }
-
-    if (normalizedQuery.includes('walk') || normalizedQuery.includes('outdoor')) {
-      return 'outdoors';
-    }
-
-    if (normalizedQuery.includes('family')) {
-      return 'family';
-    }
-
-    if (normalizedQuery.includes('culture') || selectedCategory === 'sighting') {
-      return 'sights';
-    }
-
-    if (
-      normalizedQuery.includes('dinner') ||
-      normalizedQuery.includes('dessert') ||
-      normalizedQuery.includes('lunch')
-    ) {
-      return 'food';
-    }
-
-    return null;
-  }, [searchQuery, selectedCategory, showExtraFilters, whereQuery]);
-  const handleDesktopFilterSelect = React.useCallback((filterId: string) => {
-    setShowExtraFilters(false);
-
-    switch (filterId) {
-      case 'all':
-        setSelectedCategory('all');
-        setSearchQuery('');
-        setWhereQuery('');
-        return;
-      case 'food':
-        setSelectedCategory('all');
-        setSearchQuery('dinner');
-        return;
-      case 'coffee':
-        setSelectedCategory('all');
-        setSearchQuery('coffee');
-        return;
-      case 'study':
-        setSelectedCategory('all');
-        setSearchQuery('study');
-        return;
-      case 'outdoors':
-        setSelectedCategory('all');
-        setSearchQuery('walk');
-        return;
-      case 'events':
-        setSelectedCategory('event');
-        setSearchQuery('');
-        return;
-      case 'family':
-        setSelectedCategory('all');
-        setSearchQuery('family');
-        return;
-      case 'sights':
-        setSelectedCategory('sighting');
-        setSearchQuery('culture');
-        return;
-      case 'more':
-        setShowExtraFilters(current => !current);
-        return;
-      default:
-        return;
-    }
+  const handleSelectEvent = React.useCallback((event: PromotedEvent) => {
+    setSelectedCardId(`event-${event.id}`);
+    setIsListVisible(true);
   }, []);
 
   if (loading) {
-    return <LoadingState label={t('common.loading')} />;
+    return <LoadingState label={language === 'ar' ? 'استكشاف' : 'Explore'} />;
   }
 
   return (
-    <ScreenContainer
-      scroll
-      contentContainerStyle={[
-        styles.content,
-        styles.contentWebCompact,
-        useFixedWorkspace && styles.contentWebWide,
-      ]}
+    <ScrollView
+      style={styles.page}
+      contentContainerStyle={styles.pageContent}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
     >
-      <Card style={[styles.toolbarCard, stickyToolbarStyle]}>
-        <View style={[styles.searchToolbarRow, hasToolbarColumns && styles.searchToolbarRowWide]}>
-          <View style={styles.searchSystemShell}>
-            <View style={styles.searchFieldBlock}>
-              <Text
-                style={[
-                  styles.searchFieldLabel,
-                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-              >
-                {language === 'ar' ? 'ماذا' : 'What'}
-              </Text>
-              <TextInput
-                placeholder={
-                  language === 'ar'
-                    ? 'قهوة، أماكن للدراسة، فعاليات...'
-                    : 'Coffee, study spots, events...'
-                }
-                placeholderTextColor={colors.textSubtle}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                style={[
-                  styles.searchFieldInput,
-                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-              />
-            </View>
+      <View style={[styles.container, { direction: isRTL ? 'rtl' : 'ltr' }]}>
+        <View style={styles.toolbarCard}>
+          <View style={styles.toolbarTopRow}>
+            <View style={styles.searchComposite}>
+              <View style={styles.searchField}>
+                <Text style={styles.searchFieldLabel}>{copy.what}</Text>
+                <TextInput
+                  ref={searchInputRef}
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder={copy.whatPlaceholder}
+                  placeholderTextColor={webDesktopColors.textSoft}
+                  returnKeyType="search"
+                  clearButtonMode="while-editing"
+                  style={[
+                    styles.searchInput,
+                    { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                />
+              </View>
 
-            <View style={styles.searchFieldDivider} />
+              <View style={styles.searchVerticalDivider} />
 
-            <View style={styles.searchFieldBlock}>
-              <Text
-                style={[
-                  styles.searchFieldLabel,
-                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-              >
-                {language === 'ar' ? 'أين' : 'Where'}
-              </Text>
-              <TextInput
-                placeholder={
-                  language === 'ar'
-                    ? 'قطر، مدينة، أو منطقة'
-                    : 'Qatar, City, or area'
-                }
-                placeholderTextColor={colors.textSubtle}
-                value={whereQuery}
-                onChangeText={setWhereQuery}
-                style={[
-                  styles.searchFieldInput,
-                  { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-              />
-            </View>
+              <View style={styles.searchField}>
+                <Text style={styles.searchFieldLabel}>{copy.where}</Text>
+                <TextInput
+                  value={location}
+                  onChangeText={setLocation}
+                  placeholder={copy.wherePlaceholder}
+                  placeholderTextColor={webDesktopColors.textSoft}
+                  returnKeyType="search"
+                  clearButtonMode="while-editing"
+                  style={[
+                    styles.searchInput,
+                    { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                />
+              </View>
 
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleShareBrowserLocation}
-              style={({ pressed }) => [
-                styles.toolbarTargetButton,
-                pressed && styles.toolbarIconButtonPressed,
-              ]}
-            >
-              <Text style={styles.toolbarTargetButtonText}>⌖</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setDetailExpanded(false)}
-              style={({ pressed }) => [
-                styles.toolbarSearchButton,
-                pressed && styles.toolbarSearchButtonPressed,
-              ]}
-            >
-              <Text style={styles.toolbarSearchButtonText}>⌕</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.toolbarQuickActions}>
-            <SecondaryButton
-              label={t('explore.summaryButton')}
-              loading={summaryLoading}
-              onPress={handleGenerateSummary}
-              style={styles.toolbarActionButton}
-            />
-            <SecondaryButton
-              label={
-                locationLoading
-                  ? t('explore.locationChecking')
-                  : browserLocation
-                    ? t('explore.locationRefresh')
-                    : language === 'ar'
-                      ? 'بالقرب مني'
-                      : 'Near Me'
-              }
-              loading={locationLoading}
-              onPress={handleShareBrowserLocation}
-              style={styles.toolbarActionButton}
-            />
-          </View>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.desktopFilterRail,
-            { flexDirection: getRowDirection() },
-          ]}
-        >
-          {desktopFilterOptions.map(filter => {
-            const isActive = activeDesktopFilterId === filter.id;
-
-            return (
               <Pressable
-                key={filter.id}
                 accessibilityRole="button"
-                onPress={() => handleDesktopFilterSelect(filter.id)}
-                style={({ pressed }) => [
-                  styles.desktopFilterChip,
-                  isActive && styles.desktopFilterChipActive,
-                  pressed && styles.desktopFilterChipPressed,
-                ]}
+                style={({ pressed }) => [styles.locationCrosshair, pressed && styles.pressed]}
+                onPress={() => void handleNearMe()}
               >
-                {filter.glyph ? (
-                  <Text style={[styles.desktopFilterGlyph, isActive && styles.desktopFilterGlyphActive]}>
-                    {filter.glyph}
+                <Ionicons name="locate-outline" size={22} color="#756B65" />
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.primarySearchButton, pressed && styles.pressed]}
+                onPress={() => setSelectedCardId(cards[0]?.id ?? null)}
+              >
+                <Ionicons name="search-outline" size={26} color="#FFFFFF" />
+              </Pressable>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.utilityPill, pressed && styles.pressed]}
+              onPress={() => void handleAreaSummary()}
+            >
+              <Ionicons name="analytics-outline" size={18} color="#4E453F" />
+              <Text style={styles.utilityPillText}>{copy.areaSummary}</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.utilityPill, pressed && styles.pressed]}
+              onPress={() => void handleNearMe()}
+            >
+              <Ionicons name="paper-plane-outline" size={18} color="#4E453F" />
+              <Text style={styles.utilityPillText}>{copy.nearMe}</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.filtersRow}>
+            {CHIPS.map(chip => {
+              const active = selectedChipId === chip.id;
+              return (
+                <Pressable
+                  key={chip.id}
+                  accessibilityRole="button"
+                  onPress={() => handleSelectChip(chip.id)}
+                  style={({ pressed }) => [
+                    styles.filterPill,
+                    active && styles.filterPillActive,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Ionicons
+                    name={chip.icon as keyof typeof Ionicons.glyphMap}
+                    size={18}
+                    color={active ? webDesktopColors.primary : '#5F5650'}
+                  />
+                  <Text style={[styles.filterPillText, active && styles.filterPillTextActive]}>
+                    {getCategoryOptionLabel(chip, language)}
                   </Text>
-                ) : null}
-                <Text
-                  style={[
-                    styles.desktopFilterText,
-                    isActive && styles.desktopFilterTextActive,
-                    { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                  ]}
-                >
-                  {filter.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        {showExtraFilters ? (
-          <View style={styles.extraFiltersWrap}>
-            <DiscoveryFilterBar
-              filters={filterOptions}
-              activeId={selectedCategory}
-              onSelect={filterId => setSelectedCategory(filterId as CategoryFilter)}
-              compact
-              style={styles.filterBar}
-            />
+                </Pressable>
+              );
+            })}
           </View>
-        ) : null}
-
-        {locationSummaryLabel || summary || dataIssue ? (
-          <View style={[styles.toolbarInfoRow, { flexDirection: getRowDirection() }]}>
-            {locationSummaryLabel ? (
-              <Text
-                style={[
-                  styles.toolbarInfoText,
-                  browserLocation && styles.toolbarInfoTextSuccess,
-                  locationStatus?.tone === 'warning' && styles.toolbarInfoTextWarning,
-                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-              >
-                {locationSummaryLabel}
-              </Text>
-            ) : null}
-
-            {summary ? (
-              <Text
-                style={[
-                  styles.toolbarInfoText,
-                  styles.toolbarInfoTextPrimary,
-                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                ]}
-                numberOfLines={1}
-              >
-                {`${t('explore.summaryTitle')}: ${summary}`}
-              </Text>
-            ) : null}
-
-            {dataIssue ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={handleRetry}
-                style={({ pressed }) => [
-                  styles.toolbarInfoAction,
-                  pressed && styles.issueStripActionPressed,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.issueStripActionText,
-                    { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                  ]}
-                >
-                  {t('common.retry')}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
-      </Card>
-
-      <View style={[styles.resultsMetaRow, { flexDirection: getRowDirection() }]}>
-        <View style={styles.resultsMetaCopy}>
-          <Text
-            style={[
-              styles.resultsCountHeadline,
-              { writingDirection: isRTL ? 'rtl' : 'ltr' },
-            ]}
-          >
-            {t('explore.resultsCount', { count: totalVisible })}
-          </Text>
-          <Text
-            style={[
-              styles.resultsContextText,
-              { writingDirection: isRTL ? 'rtl' : 'ltr' },
-            ]}
-          >
-            {language === 'ar' ? `في ${locationContextLabel}` : `in ${locationContextLabel}`}
-          </Text>
         </View>
 
-        <View style={[styles.resultsMetaActions, { flexDirection: getRowDirection() }]}>
-          <Text
-            style={[
-              styles.sortLabelText,
-              { writingDirection: isRTL ? 'rtl' : 'ltr' },
+        {dataIssue ? (
+          <StatusBanner
+            compact
+            tone="warning"
+            title={copy.dataIssueTitle}
+            body={dataIssue}
+            actions={[
+              {
+                label: copy.retry,
+                tone: 'primary',
+                onPress: handleRetry,
+              },
             ]}
-          >
-            {language === 'ar' ? 'ترتيب حسب' : 'Sort by'}
+          />
+        ) : null}
+
+        <View style={styles.resultsSummaryRow}>
+          <Text style={styles.resultsCount}>
+            {cards.length}{' '}
+            <Text style={styles.resultsCountSub}>{copy.results}</Text>{' '}
+            <Text style={styles.resultsCountSub}>{copy.inQatar}</Text>
           </Text>
+
+          <View style={styles.sortWrap}>
+            <Text style={styles.sortLabel}>{copy.sortBy}</Text>
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.sortButton, pressed && styles.pressed]}
+              onPress={() => setSortMode(current => getNextSortMode(current))}
+            >
+              <Text style={styles.sortButtonText}>{copy.sortLabels[sortMode]}</Text>
+              <Ionicons name="chevron-down" size={16} color="#7A706A" />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.summaryPanel}>
+          <View style={styles.summaryPanelCopy}>
+            <Text style={styles.summaryPanelTitle}>{copy.summaryTitle}</Text>
+            <Text style={styles.summaryPanelBody}>
+              {areaSummary || copy.summaryPrompt}
+            </Text>
+          </View>
           <Pressable
             accessibilityRole="button"
+            disabled={summaryLoading}
             style={({ pressed }) => [
-              styles.sortControl,
-              pressed && styles.desktopFilterChipPressed,
+              styles.summaryPanelButton,
+              summaryLoading && styles.summaryPanelButtonDisabled,
+              pressed && !summaryLoading && styles.pressed,
             ]}
+            onPress={() => void handleAreaSummary()}
           >
-            <Text
-              style={[
-                styles.sortControlText,
-                { writingDirection: isRTL ? 'rtl' : 'ltr' },
-              ]}
-            >
-              {language === 'ar' ? 'موصى به' : 'Recommended'}
-            </Text>
-            <Text
-              style={[
-                styles.sortControlCaret,
-                { writingDirection: isRTL ? 'rtl' : 'ltr' },
-              ]}
-            >
-              ⌄
-            </Text>
+            {summaryLoading ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="sparkles-outline" size={17} color="#FFFFFF" />
+                <Text style={styles.summaryPanelButtonText}>{copy.generateSummary}</Text>
+              </>
+            )}
           </Pressable>
         </View>
-      </View>
 
-      <View
-        style={[
-          styles.workspace,
-          hasWorkspaceColumns && styles.workspaceWide,
-          workspaceHeight ? { minHeight: workspaceHeight } : null,
-        ]}
-      >
-        <Card
-          style={[
-            styles.resultsCard,
-            hasWorkspaceColumns && styles.resultsCardWide,
-            workspaceHeight ? { height: workspaceHeight } : null,
-          ]}
-        >
-          {hasNoResults ? (
-            <EmptyState
-              compact
-              title={t('explore.noResultsTitle')}
-              subtitle={t('explore.noResultsSubtitle')}
-            />
-          ) : (
-            <ScrollView
-              ref={resultsScrollRef}
-              style={styles.panelScroll}
-              contentContainerStyle={styles.resultsList}
-              showsVerticalScrollIndicator={false}
-            >
-              {detailExpanded && selectedEventItem ? (
-                <View style={styles.inlineDetailPanel}>
-                  <View style={[styles.inlineDetailTopBar, { flexDirection: getRowDirection() }]}>
-                    <Text
-                      style={[
-                        styles.inlineDetailHeading,
-                        { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                      ]}
-                    >
-                      {selectedEventItem.title}
-                    </Text>
-                    <SecondaryButton
-                      label={t('explore.collapse')}
-                      onPress={() => setDetailExpanded(false)}
-                      style={styles.inlineDetailCollapseButton}
-                    />
-                  </View>
-                  <EventDetailPanel event={selectedEventItem} />
+        <View style={styles.mainSplit}>
+          {isListVisible ? (
+            <View style={styles.resultsColumn}>
+              {cards.length === 0 ? (
+                <View style={styles.emptyResultsWrap}>
+                  <EmptyState title={copy.noResultsTitle} body={copy.noResultsBody} />
                 </View>
-              ) : null}
+              ) : (
+                cards.map(item => {
+                  const active = selected?.id === item.id;
 
-              {detailExpanded && selectedSpotItem && selectedPost ? (
-                <View style={styles.inlineDetailPanel}>
-                  <View style={[styles.inlineDetailTopBar, { flexDirection: getRowDirection() }]}>
-                    <Text
-                      style={[
-                        styles.inlineDetailHeading,
-                        { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                      ]}
-                    >
-                      {selectedSpotItem.title}
-                    </Text>
-                    <SecondaryButton
-                      label={t('explore.collapse')}
-                      onPress={() => setDetailExpanded(false)}
-                      style={styles.inlineDetailCollapseButton}
-                    />
-                  </View>
-                  <SpotDetailPanel
-                    spot={selectedSpotItem}
-                    banner={
-                      <>
-                        {detailFeedback ? <StatusBanner compact {...detailFeedback} /> : null}
-                        {!user ? (
-                          <View style={styles.inlineNote}>
-                            <Text
-                              style={[
-                                styles.inlineNoteText,
-                                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
-                              ]}
-                            >
-                              {t('explore.signInForActionsBody')}
+                  return (
+                    <View key={item.id} style={styles.resultRowShell}>
+                      <View style={[styles.resultRow, active && styles.resultRowActive]}>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() => setSelectedCardId(item.id)}
+                          style={({ pressed }) => [
+                            styles.resultMainButton,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Image source={{ uri: item.imageUrl }} style={styles.resultImage} />
+
+                          <View style={styles.resultContent}>
+                            <View style={styles.resultTopLine}>
+                              <Text
+                                style={[
+                                  styles.resultTitle,
+                                  { writingDirection: isRTL ? 'rtl' : 'ltr' },
+                                ]}
+                                numberOfLines={2}
+                              >
+                                {item.title}
+                              </Text>
+                            </View>
+
+                            <View style={styles.ratingLine}>
+                              <Ionicons name="star" size={15} color="#F55445" />
+                              <Text style={styles.ratingLineText} numberOfLines={1}>
+                                {item.ratingLabel ?? item.kind} - {item.subtitle}
+                              </Text>
+                            </View>
+
+                            <Text style={styles.resultDescription} numberOfLines={1}>
+                              {item.description}
+                            </Text>
+
+                            <View style={styles.badgeLine}>
+                              {item.signal ? (
+                                <View style={styles.promotedBadge}>
+                                  <Text style={styles.promotedBadgeText}>
+                                    {item.signal === 'promoted' ? copy.promoted : copy.popular}
+                                  </Text>
+                                </View>
+                              ) : null}
+
+                              <View style={styles.inlineMeta}>
+                                <Ionicons name="calendar-outline" size={15} color="#756B65" />
+                                <Text style={styles.inlineMetaText}>{item.timeLabel}</Text>
+                              </View>
+                            </View>
+                          </View>
+
+                          <View style={styles.resultRightMeta}>
+                            <Text style={styles.distanceText}>{item.distanceLabel}</Text>
+                            <Text style={styles.minutesText}>
+                              {item.kind === 'event' ? copy.eventToday : item.timeLabel}
                             </Text>
                           </View>
-                        ) : null}
-                      </>
-                    }
-                    actions={[
-                      {
-                        id: 'save',
-                        label: favoritePostIdSet.has(selectedPost.id)
-                          ? t('common.saved')
-                          : t('common.save'),
-                        tone: favoritePostIdSet.has(selectedPost.id) ? 'primary' : 'neutral',
-                        loading: favoriteLoading,
-                        disabled: !user,
-                        onPress: handleToggleFavorite,
-                      },
-                      {
-                        id: 'like',
-                        label:
-                          user?.id && likeUserIdSet.has(user.id)
-                            ? `${t('common.liked')} (${likeUserIds.length})`
-                            : `${t('common.like')} (${likeUserIds.length})`,
-                        tone:
-                          user?.id && likeUserIdSet.has(user.id) ? 'primary' : 'neutral',
-                        loading: likeLoading,
-                        disabled: !user,
-                        onPress: handleToggleLike,
-                      },
-                      {
-                        id: 'report',
-                        label: t('explore.report'),
-                        disabled: !user,
-                        onPress: () => openReportComposer('post', selectedPost.id),
-                      },
-                    ]}
-                  >
-                    <Section
-                      title={t('explore.commentsTitle', { count: comments.length })}
-                      subtitle={t('explore.commentsSubtitle')}
-                    >
-                      <TextField
-                        placeholder={t('explore.commentPlaceholder')}
-                        value={commentText}
-                        onChangeText={setCommentText}
-                        multiline
-                        editable={!!user}
-                        style={styles.commentInput}
-                        helperText={
-                          user
-                            ? t('explore.commentHelperSignedIn')
-                            : t('explore.commentHelperSignedOut')
-                        }
-                      />
-                      <PrimaryButton
-                        label={t('explore.addComment')}
-                        loading={commentLoading}
-                        disabled={!user}
-                        onPress={handleAddComment}
-                      />
+                        </Pressable>
 
-                      {comments.length === 0 ? (
-                        <EmptyState
-                          compact
-                          title={t('explore.noCommentsTitle')}
-                          subtitle={t('explore.noCommentsSubtitle')}
-                        />
-                      ) : (
-                        <View style={styles.listStack}>
-                          {comments.map(comment => (
-                            <CommentCard
-                              key={comment.id}
-                              comment={comment}
-                              canDelete={user?.id === comment.userId}
-                              deleting={deletingCommentId === comment.id}
-                              onDelete={() => handleDeleteComment(comment)}
-                              onReport={() => openReportComposer('comment', comment.id)}
-                            />
-                          ))}
+                        <View style={styles.resultActions}>
+                          <Pressable
+                            accessibilityRole="button"
+                            style={({ pressed }) => [styles.circleAction, pressed && styles.pressed]}
+                            onPress={() => void handleToggleSave(item)}
+                          >
+                            {savingCardId === item.id ? (
+                              <ActivityIndicator color={webDesktopColors.primary} />
+                            ) : (
+                              <Ionicons
+                                name={item.saved ? 'bookmark' : 'bookmark-outline'}
+                                size={18}
+                                color="#5D534D"
+                              />
+                            )}
+                          </Pressable>
+                          <Pressable
+                            accessibilityRole="button"
+                            style={({ pressed }) => [styles.circleAction, pressed && styles.pressed]}
+                            onPress={() => showAlert(copy.detailsTitle, item.description)}
+                          >
+                            <Ionicons name="ellipsis-vertical" size={18} color="#5D534D" />
+                          </Pressable>
                         </View>
-                      )}
-                    </Section>
-
-                    {reportTargetId ? (
-                      <Section
-                        title={t('explore.reportTitle')}
-                        subtitle={t('explore.reportSubtitle')}
-                      >
-                        <View style={styles.filterRowCompact}>
-                          {REPORT_REASONS.map(reason => (
-                            <FilterChip
-                              key={reason}
-                              label={formatReasonLabel(reason)}
-                              compact
-                              active={reportReason === reason}
-                              onPress={() => setReportReason(reason)}
-                            />
-                          ))}
-                        </View>
-
-                        <TextField
-                          placeholder={t('explore.reportNotePlaceholder')}
-                          value={reportNote}
-                          onChangeText={setReportNote}
-                          multiline
-                          style={styles.reportNoteInput}
-                        />
-
-                        <View style={styles.actionGrid}>
-                          <SecondaryButton
-                            label={t('common.cancel')}
-                            disabled={reportLoading}
-                            onPress={() => setReportTargetId(null)}
-                          />
-                          <PrimaryButton
-                            label={t('explore.submitReport')}
-                            loading={reportLoading}
-                            disabled={!user}
-                            onPress={handleSubmitReport}
+                      </View>
+                      {active && item.rawPost ? (
+                        <View style={styles.interactionPanel}>
+                          <PostInteractionPanel
+                            post={item.rawPost}
+                            currentUserId={user?.id}
+                            currentUserLabel={interactionUserLabel}
+                            compact
                           />
                         </View>
-                      </Section>
-                    ) : null}
-                  </SpotDetailPanel>
-                </View>
+                      ) : null}
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          ) : null}
+
+          <View style={[styles.mapColumn, !isListVisible && styles.mapColumnFull]}>
+            <View style={styles.mapTopControls} pointerEvents="box-none">
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.mapFloatingControl,
+                  autoSearchArea && styles.mapFloatingControlActive,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => setAutoSearchArea(value => !value)}
+              >
+                <Ionicons name="locate-outline" size={18} color="#3B332E" />
+                <Text style={styles.mapFloatingControlText}>{copy.searchAsMove}</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.mapFloatingControl, pressed && styles.pressed]}
+                onPress={() => setIsListVisible(value => !value)}
+              >
+                <Ionicons name="list-outline" size={18} color="#3B332E" />
+                <Text style={styles.mapFloatingControlText}>
+                  {isListVisible ? copy.hideList : copy.showList}
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.mapFrame}>
+              {isFocused ? (
+                <ExploreMapSurface
+                  posts={mapPosts}
+                  events={mapEvents}
+                  selectedResult={selectedResult}
+                  browserLocation={browserLocation}
+                  onSelectPost={handleSelectPost}
+                  onSelectEvent={handleSelectEvent}
+                  onViewportChange={handleMapViewportChange}
+                  style={styles.liveMap}
+                />
               ) : null}
 
-              {rankedResults.map(item =>
-                item.kind === 'spot' ? (
-                  <SpotCard
-                    key={item.id}
-                    spot={item}
-                    selected={
-                      selectedResult?.kind === 'post' &&
-                      selectedResult.id === item.postId
-                    }
-                    variant="desktopSearch"
-                    onPress={() => handleSelectPost(item.rawPost)}
-                  />
-                ) : (
-                  <EventCard
-                    key={item.id}
-                    event={item}
-                    selected={
-                      selectedResult?.kind === 'event' &&
-                      selectedResult.id === item.eventId
-                    }
-                    variant="desktopSearch"
-                    onPress={() => handleSelectEvent(item.rawEvent)}
-                  />
-                )
-              )}
-            </ScrollView>
-            )}
-        </Card>
-
-        <View style={styles.mapColumn}>
-          <Card
-            style={[
-              styles.mapCard,
-              hasWorkspaceColumns && styles.mapCardWide,
-              workspaceHeight ? { height: workspaceHeight } : null,
-            ]}
-          >
-            <View style={styles.mapSurfaceWrap}>
-              <ExploreMapSurface
-                posts={filteredPosts}
-                events={filteredEvents}
-                selectedResult={selectedResult}
-                browserLocation={browserLocation}
-                onSelectPost={handleSelectPost}
-                onSelectEvent={handleSelectEvent}
-                style={[
-                  workspaceHeight
-                    ? {
-                        height: Math.max(620, workspaceHeight - 28),
-                      }
-                    : styles.mapSurface,
-                  !workspaceHeight && hasWorkspaceColumns && styles.mapSurfaceWide,
-                ]}
-              />
-
-              <View style={styles.mapOverlayTopRow}>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setMapSearchAsMove(current => !current)}
-                  style={({ pressed }) => [
-                    styles.mapOverlayChip,
-                    mapSearchAsMove && styles.mapOverlayChipActive,
-                    pressed && styles.desktopFilterChipPressed,
-                  ]}
-                >
-                  <Text style={styles.mapOverlayChipIcon}>⌖</Text>
-                  <Text
-                    style={[
-                      styles.mapOverlayChipText,
-                      mapSearchAsMove && styles.mapOverlayChipTextActive,
-                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                    ]}
-                  >
-                    {language === 'ar' ? 'ابحث عند تحريك الخريطة' : 'Search as I move the map'}
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={handleShowResultsList}
-                  style={({ pressed }) => [
-                    styles.mapOverlayChip,
-                    pressed && styles.desktopFilterChipPressed,
-                  ]}
-                >
-                  <Text style={styles.mapOverlayChipIcon}>≡</Text>
-                  <Text
-                    style={[
-                      styles.mapOverlayChipText,
-                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                    ]}
-                  >
-                    {language === 'ar' ? 'إظهار القائمة' : 'Show list'}
-                  </Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.mapOverlayControlRail}>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={handleShareBrowserLocation}
-                  style={({ pressed }) => [
-                    styles.mapControlButton,
-                    pressed && styles.desktopFilterChipPressed,
-                  ]}
-                >
-                  <Text style={styles.mapControlButtonText}>⌖</Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.mapLegendFloating}>
-                <View style={[styles.mapLegendChip, { flexDirection: getRowDirection() }]}>
-                  <View style={[styles.legendDot, styles.legendDotPost]} />
-                  <Text
-                    style={[
-                      styles.mapLegendChipText,
-                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                    ]}
-                  >
-                    {language === 'ar' ? 'الأماكن الشائعة' : 'Popular'}
-                  </Text>
+              <View style={styles.mapLegend} pointerEvents="box-none">
+                <View style={styles.legendItem}>
+                  <Ionicons name="star" size={14} color="#F55445" />
+                  <Text style={styles.legendText}>{copy.popular}</Text>
                 </View>
-                <View style={[styles.mapLegendChip, { flexDirection: getRowDirection() }]}>
-                  <View style={[styles.legendDot, styles.legendDotEvent]} />
-                  <Text
-                    style={[
-                      styles.mapLegendChipText,
-                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                    ]}
-                  >
-                    {language === 'ar' ? 'الفعاليات المروجة' : 'Promoted'}
-                  </Text>
+                <View style={styles.legendItem}>
+                  <Ionicons name="pricetag-outline" size={14} color="#F55445" />
+                  <Text style={styles.legendText}>{copy.promoted}</Text>
                 </View>
-                <View style={[styles.mapLegendChip, { flexDirection: getRowDirection() }]}>
-                  <View style={[styles.legendDot, styles.legendDotLocation]} />
-                  <Text
-                    style={[
-                      styles.mapLegendChipText,
-                      { writingDirection: isRTL ? 'rtl' : 'ltr' },
-                    ]}
-                  >
-                    {language === 'ar' ? 'اليوم' : 'Event today'}
-                  </Text>
+                <View style={styles.legendItem}>
+                  <Ionicons name="calendar-outline" size={14} color="#5D534D" />
+                  <Text style={styles.legendText}>{copy.eventToday}</Text>
                 </View>
               </View>
             </View>
-          </Card>
+          </View>
         </View>
       </View>
-    </ScreenContainer>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
+  page: {
+    flex: 1,
+    backgroundColor: webDesktopColors.page,
+  },
+  pageContent: {
+    paddingTop: webDesktopLayout.pagePaddingTop,
+    paddingBottom: 48,
+  },
+  container: {
     width: '100%',
+    maxWidth: webDesktopLayout.maxWidth,
     alignSelf: 'center',
-    paddingBottom: spacing.xxxl,
-    gap: spacing.md,
+    paddingHorizontal: webDesktopLayout.pagePaddingX,
+    gap: 18,
   },
-  contentWebCompact: {
-    paddingTop: spacing.lg,
-    paddingHorizontal: webDesktopLayout.horizontalPadding - spacing.lg,
-    maxWidth: webDesktopLayout.maxWidth + 120,
-  },
-  contentWebWide: {
-    paddingHorizontal: webDesktopLayout.horizontalPadding,
-  },
+
   toolbarCard: {
-    ...webDesktopSupportSurface,
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  searchToolbarRow: {
-    gap: spacing.sm,
-  },
-  searchToolbarRowWide: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  searchSystemShell: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingLeft: spacing.lg,
-    paddingRight: spacing.sm,
-    borderRadius: radius.lg,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: webDesktopColors.border,
+    borderRadius: 18,
+    padding: 16,
+    gap: 14,
   },
-  searchFieldBlock: {
+  toolbarTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  searchComposite: {
+    flex: 1,
+    minHeight: 56,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  searchField: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
-    paddingVertical: spacing.xs,
+    paddingHorizontal: 18,
+    justifyContent: 'center',
   },
   searchFieldLabel: {
-    ...typography.label,
-    color: colors.text,
     fontSize: 13,
     lineHeight: 16,
-    letterSpacing: 0.16,
-    textTransform: 'none',
+    fontWeight: '700',
+    color: '#3E3530',
+    marginBottom: 4,
   },
-  searchFieldInput: {
-    ...typography.body,
-    color: colors.text,
-    fontSize: 15,
+  searchInput: {
+    fontSize: 16,
     lineHeight: 20,
-    margin: 0,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    backgroundColor: 'transparent',
+    color: webDesktopColors.text,
+    padding: 0,
+    minHeight: 24,
   },
-  searchFieldDivider: {
+  searchVerticalDivider: {
     width: 1,
-    height: 30,
-    backgroundColor: colors.border,
+    alignSelf: 'stretch',
+    backgroundColor: webDesktopColors.border,
   },
-  toolbarTargetButton: {
-    ...webDesktopControl,
-    width: 44,
-    height: 44,
+  locationCrosshair: {
+    width: 54,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: webDesktopColors.border,
+  },
+  primarySearchButton: {
+    width: 96,
+    alignSelf: 'stretch',
+    backgroundColor: webDesktopColors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  toolbarTargetButtonText: {
-    color: colors.textMuted,
-    fontSize: 18,
+  utilityPill: {
+    minHeight: 48,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  utilityPillText: {
+    fontSize: 15,
     lineHeight: 18,
+    fontWeight: '600',
+    color: '#4E453F',
   },
-  toolbarIconButtonPressed: {
-    opacity: 0.86,
-    backgroundColor: colors.surfaceMuted,
-  },
-  toolbarSearchButton: {
-    minWidth: 102,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.md,
-    backgroundColor: colors.primary,
-    shadowColor: colors.primaryPressed,
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  toolbarSearchButtonPressed: {
-    backgroundColor: colors.primaryPressed,
-  },
-  toolbarSearchButtonText: {
-    color: colors.surface,
-    fontSize: 22,
-    lineHeight: 22,
-  },
-  toolbarQuickActions: {
+
+  filtersRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
     flexWrap: 'wrap',
+    gap: 10,
   },
-  toolbarActionButton: {
-    ...webDesktopControl,
-    minHeight: 44,
-    paddingHorizontal: spacing.lg,
-  },
-  desktopFilterRail: {
-    gap: spacing.sm,
-    paddingVertical: 2,
-  },
-  desktopFilterChip: {
-    ...webDesktopChip,
-    minHeight: 38,
+  filterPill: {
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: spacing.sm + 1,
-    paddingHorizontal: spacing.md + 2,
+    gap: 8,
   },
-  desktopFilterChipActive: {
-    borderColor: colors.primary,
-    backgroundColor: '#FFF4F0',
+  filterPillActive: {
+    borderColor: '#F0B1A8',
+    backgroundColor: '#FFF8F6',
   },
-  desktopFilterChipPressed: {
-    opacity: 0.88,
+  filterPillText: {
+    fontSize: 14,
+    lineHeight: 17,
+    fontWeight: '600',
+    color: '#5A514B',
   },
-  desktopFilterGlyph: {
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 14,
+  filterPillTextActive: {
+    color: webDesktopColors.primary,
   },
-  desktopFilterGlyphActive: {
-    color: colors.primaryPressed,
+
+  resultsSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  desktopFilterText: {
-    ...typography.caption,
-    color: colors.textMuted,
+  resultsCount: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '800',
+    color: webDesktopColors.text,
+  },
+  resultsCountSub: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '500',
+    color: webDesktopColors.textMuted,
+  },
+  sortWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sortLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: '#726861',
     fontWeight: '600',
   },
-  desktopFilterTextActive: {
-    color: colors.primaryPressed,
-  },
-  extraFiltersWrap: {
-    paddingTop: 2,
-  },
-  filterBar: {
-    flex: 1,
-  },
-  toolbarInfoRow: {
+  sortButton: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
-    minHeight: 22,
+    gap: 8,
   },
-  toolbarInfoText: {
-    ...typography.caption,
-    color: colors.textSubtle,
-    fontSize: 12,
-    lineHeight: 16,
+  sortButtonText: {
+    fontSize: 14,
+    lineHeight: 17,
+    fontWeight: '700',
+    color: '#403732',
   },
-  toolbarInfoTextSuccess: {
-    color: colors.success,
+  summaryPanel: {
+    minHeight: 92,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
   },
-  toolbarInfoTextWarning: {
-    color: colors.warning,
+  summaryPanelCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
   },
-  toolbarInfoTextPrimary: {
-    flexShrink: 1,
-    color: colors.textMuted,
+  summaryPanelTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
+    color: webDesktopColors.text,
   },
-  toolbarInfoAction: {
-    paddingVertical: 2,
+  summaryPanelBody: {
+    fontSize: 14,
+    lineHeight: 19,
+    color: webDesktopColors.textMuted,
   },
-  issueStripAction: {
-    paddingVertical: 2,
+  summaryPanelButton: {
+    minHeight: 44,
+    borderRadius: 14,
+    backgroundColor: webDesktopColors.primary,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
-  issueStripActionPressed: {
+  summaryPanelButtonDisabled: {
     opacity: 0.7,
   },
-  issueStripActionText: {
-    ...typography.caption,
-    color: colors.primaryPressed,
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: '600',
+  summaryPanelButtonText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
-  resultsMetaRow: {
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    paddingHorizontal: spacing.xs,
-    paddingTop: 2,
-  },
-  resultsMetaCopy: {
+
+  mainSplit: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    gap: 0,
+    minHeight: 780,
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
   },
-  resultsCountHeadline: {
-    ...typography.sectionTitle,
-    ...webDesktopSectionTitle,
-    color: colors.text,
+  resultsColumn: {
+    width: '56%',
+    backgroundColor: '#FFFFFF',
   },
-  resultsContextText: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontWeight: '600',
+  mapColumn: {
+    width: '44%',
+    borderLeftWidth: 1,
+    borderLeftColor: webDesktopColors.border,
+    backgroundColor: '#F7F4F0',
+    position: 'relative',
   },
-  resultsMetaActions: {
+  mapColumnFull: {
+    width: '100%',
+    borderLeftWidth: 0,
+  },
+
+  emptyResultsWrap: {
+    padding: 24,
+  },
+  resultRowShell: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE8E2',
+  },
+  resultRow: {
+    minHeight: 110,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 14,
+  },
+  resultMainButton: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    gap: 14,
+  },
+  resultRowActive: {
+    backgroundColor: '#FFF9F7',
+    borderLeftWidth: 3,
+    borderLeftColor: webDesktopColors.primary,
+  },
+  resultImage: {
+    width: 164,
+    height: 98,
+    borderRadius: 12,
+    backgroundColor: '#E9E2DA',
+  },
+  resultContent: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  resultTopLine: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 10,
   },
-  sortLabelText: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontWeight: '600',
+  resultTitle: {
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: '800',
+    color: webDesktopColors.text,
+    flexShrink: 1,
   },
-  sortControl: {
-    ...webDesktopControl,
-    minHeight: 36,
+  ratingLine: {
+    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: spacing.md,
   },
-  sortControlText: {
-    ...typography.caption,
-    color: colors.text,
-    fontWeight: '700',
-  },
-  sortControlCaret: {
-    ...typography.caption,
-    color: colors.textSubtle,
-    fontWeight: '700',
-  },
-  workspace: {
-    gap: spacing.md,
-  },
-  workspaceWide: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: spacing.md,
-  },
-  resultsCard: {
-    ...webDesktopSurface,
-    minHeight: 0,
-    padding: 0,
-    overflow: 'hidden',
-  },
-  resultsCardWide: {
-    flex: 1.08,
-    minWidth: 700,
-    maxWidth: 920,
-  },
-  panelScroll: {
-    flex: 1,
-    minHeight: 0,
-  },
-  resultsList: {
-    paddingVertical: spacing.xs,
-    paddingBottom: spacing.md,
-  },
-  inlineDetailPanel: {
-    margin: spacing.md,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceRaised,
-    gap: spacing.sm,
-  },
-  inlineDetailTopBar: {
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  inlineDetailHeading: {
-    ...typography.sectionTitle,
-    flex: 1,
-    color: colors.text,
-    fontSize: 18,
-    lineHeight: 23,
-  },
-  inlineDetailCollapseButton: {
-    minHeight: 34,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-  },
-  mapColumn: {
-    minWidth: 0,
-    flex: 0.92,
-  },
-  mapCard: {
-    ...webDesktopSurface,
-    minHeight: 0,
-    padding: 0,
-    overflow: 'hidden',
-  },
-  mapCardWide: {
-    flex: 0.92,
-    minWidth: 500,
-    maxWidth: 680,
-  },
-  mapSurfaceWrap: {
-    flex: 1,
-    minHeight: 0,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: webDesktopSurface.borderRadius,
-    backgroundColor: colors.surfaceMuted,
-  },
-  mapSurface: {
-    height: 620,
-  },
-  mapSurfaceWide: {
-    height: 760,
-  },
-  mapOverlayTopRow: {
-    position: 'absolute',
-    top: spacing.md,
-    left: spacing.md,
-    right: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-  },
-  mapOverlayChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm + 1,
-    paddingHorizontal: spacing.md + 2,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: 'rgba(229, 220, 209, 0.95)',
-    backgroundColor: 'rgba(255, 252, 248, 0.97)',
-    shadowColor: '#2A2119',
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  mapOverlayChipActive: {
-    borderColor: colors.borderStrong,
-    backgroundColor: '#FFFDFB',
-  },
-  mapOverlayChipIcon: {
-    color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 16,
-  },
-  mapOverlayChipText: {
-    ...typography.caption,
-    color: colors.text,
+  ratingLineText: {
+    fontSize: 14,
+    lineHeight: 18,
+    color: '#5F5650',
     fontWeight: '600',
+    flexShrink: 1,
   },
-  mapOverlayChipTextActive: {
-    color: colors.text,
+  resultDescription: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 18,
+    color: webDesktopColors.textMuted,
   },
-  mapOverlayControlRail: {
-    position: 'absolute',
-    top: spacing.md,
-    right: spacing.md,
-    gap: spacing.sm,
+  badgeLine: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    flexWrap: 'wrap',
   },
-  mapControlButton: {
-    width: 46,
-    height: 46,
+  promotedBadge: {
+    paddingHorizontal: 10,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: '#FFF0EC',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: 'rgba(229, 220, 209, 0.95)',
-    backgroundColor: 'rgba(255, 252, 248, 0.97)',
-    shadowColor: '#2A2119',
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
   },
-  mapControlButtonText: {
-    color: colors.text,
-    fontSize: 18,
-    lineHeight: 18,
+  promotedBadgeText: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '700',
+    color: webDesktopColors.primary,
   },
-  mapLegendFloating: {
-    position: 'absolute',
-    left: spacing.md,
-    bottom: spacing.md,
+  inlineMeta: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  mapLegendChip: {
     alignItems: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md + 2,
-    borderRadius: radius.pill,
+    gap: 6,
+  },
+  inlineMetaText: {
+    fontSize: 13,
+    lineHeight: 16,
+    color: '#756B65',
+    fontWeight: '500',
+  },
+
+  resultRightMeta: {
+    width: 116,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  distanceText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: '#5B514B',
+    textAlign: 'right',
+  },
+  minutesText: {
+    fontSize: 13,
+    lineHeight: 16,
+    color: '#8B8079',
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  resultActions: {
+    width: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  circleAction: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(229, 220, 209, 0.95)',
-    backgroundColor: 'rgba(255, 252, 248, 0.97)',
-    shadowColor: '#2A2119',
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
+    borderColor: webDesktopColors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
   },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: radius.pill,
+  interactionPanel: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: '#FFF9F7',
   },
-  legendDotPost: {
-    backgroundColor: colors.primary,
-  },
-  legendDotEvent: {
-    backgroundColor: colors.warning,
-  },
-  legendDotLocation: {
-    backgroundColor: colors.info,
-  },
-  mapLegendChipText: {
-    ...typography.caption,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  inlineNote: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceRaised,
-    padding: spacing.sm + 2,
-  },
-  inlineNoteText: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontWeight: '600',
-  },
-  filterRowCompact: {
+
+  mapTopControls: {
+    position: 'absolute',
+    top: 18,
+    left: 18,
+    right: 72,
+    zIndex: 3,
     flexDirection: 'row',
+    gap: 12,
     flexWrap: 'wrap',
-    gap: spacing.xs + 2,
   },
-  actionGrid: {
-    gap: spacing.sm,
-  },
-  commentInput: {
-    minHeight: 84,
-    textAlignVertical: 'top',
-  },
-  listStack: {
-    gap: spacing.sm,
-  },
-  commentCard: {
-    borderRadius: radius.lg,
+  mapFloatingControl: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceRaised,
-    padding: spacing.md,
-    gap: spacing.xs + 2,
-  },
-  commentHeader: {
+    borderColor: webDesktopColors.border,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: spacing.md,
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#20150E',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
   },
-  commentHeaderCopy: {
+  mapFloatingControlActive: {
+    borderColor: '#F0B1A8',
+    backgroundColor: '#FFF8F6',
+  },
+  mapFloatingControlText: {
+    fontSize: 14,
+    lineHeight: 17,
+    fontWeight: '600',
+    color: '#443B36',
+  },
+
+  mapFrame: {
     flex: 1,
-    gap: spacing.xs,
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#EDE8E2',
   },
-  commentAuthor: {
-    ...typography.button,
-    color: colors.text,
+  liveMap: {
+    flex: 1,
+    borderRadius: 0,
   },
-  commentTimestamp: {
-    ...typography.caption,
-    color: colors.textSubtle,
-  },
-  commentActionsInline: {
+
+  mapLegend: {
+    position: 'absolute',
+    left: 18,
+    bottom: 18,
+    minHeight: 46,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    alignItems: 'center',
+    gap: 20,
   },
-  commentActionText: {
-    ...typography.caption,
-    color: colors.primary,
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendText: {
+    fontSize: 13,
+    lineHeight: 16,
+    color: '#5C524B',
     fontWeight: '600',
   },
-  commentDeleteText: {
-    color: colors.danger,
-  },
-  commentBody: {
-    ...typography.body,
-    color: colors.textMuted,
-  },
-  reportNoteInput: {
-    minHeight: 92,
-    textAlignVertical: 'top',
+  pressed: {
+    opacity: 0.82,
   },
 });

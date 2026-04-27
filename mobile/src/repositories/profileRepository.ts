@@ -75,6 +75,10 @@ function mapProfileDocument(
     bio: typeof data.bio === 'string' ? data.bio : '',
     language: isSupportedLanguage(data.language) ? data.language : 'en',
     privacyMode: typeof data.privacyMode === 'boolean' ? data.privacyMode : false,
+    emailNotifications:
+      typeof data.emailNotifications === 'boolean' ? data.emailNotifications : true,
+    marketingEmails:
+      typeof data.marketingEmails === 'boolean' ? data.marketingEmails : false,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
   };

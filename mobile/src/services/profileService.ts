@@ -19,6 +19,7 @@ type CreateDefaultProfileInput = {
   id: string;
   email: string | null;
   role?: UserRole;
+  username?: string;
 };
 
 type LoadProfileInput = {
@@ -31,6 +32,8 @@ type SaveProfileInput = {
   bio: string;
   language: AppLanguage;
   privacyMode: boolean;
+  emailNotifications?: boolean;
+  marketingEmails?: boolean;
 };
 
 function buildDefaultUsername(email: string | null, userId: string) {
@@ -42,16 +45,20 @@ function buildDefaultUsername(email: string | null, userId: string) {
 }
 
 export async function createDefaultProfile(input: CreateDefaultProfileInput) {
+  const username = input.username?.trim() || buildDefaultUsername(input.email, input.id);
+
   const profile: CreateAppProfileInput = {
     id: input.id,
     email: input.email,
     role: input.role ?? 'user',
     xp: 0,
     badgeKeys: [],
-    username: buildDefaultUsername(input.email, input.id),
+    username,
     bio: '',
     language: 'en',
     privacyMode: false,
+    emailNotifications: true,
+    marketingEmails: false,
   };
 
   await createProfile(profile);
@@ -105,6 +112,14 @@ export async function saveCurrentUserProfile(input: SaveProfileInput) {
     language: input.language,
     privacyMode: input.privacyMode,
   };
+
+  if (typeof input.emailNotifications === 'boolean') {
+    update.emailNotifications = input.emailNotifications;
+  }
+
+  if (typeof input.marketingEmails === 'boolean') {
+    update.marketingEmails = input.marketingEmails;
+  }
 
   await updateProfileById(input.userId, update);
 }
