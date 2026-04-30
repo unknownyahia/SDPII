@@ -1,0 +1,81 @@
+CHANGELOG AND REMAINING ITEMS
+Generated for: SDP_final_full_app_updated_FIXED.docx
+Date: 29 April 2026
+
+MAJOR IMPROVEMENTS MADE
+
+1. Rebuilt the report structure to follow the official Senior Project Report template, including title page, declaration, abstract, acknowledgment, contents, lists, numbered chapters, references, and appendices.
+2. Rewrote the report as a final Semester 2 submission for the active React Native CLI implementation of Spots Mobile.
+3. Removed or corrected legacy Expo framing. The old Expo version is described only as a legacy proof-of-concept, not as the active system.
+4. Strengthened the abstract, introduction, motivation, problem statement, technical challenges, non-technical challenges, and complex computing problem explanation.
+5. Rewrote project objectives as SMART objectives and added attainment status for each objective.
+6. Added a stronger expected benefits and impacts table covering individuals, organizations, society, the technical community, and global relevance.
+7. Expanded the market research and business viability section with target customer segments, competitor analysis, revenue streams, pricing possibilities, marketing strategy, operating costs, and risks.
+8. Improved background and related work for location-based services, mobile crowdsensing, community-generated content, AI summarization, gamification, privacy, and moderation.
+9. Added IEEE-style in-text citations and a references section with cited academic and official documentation sources.
+10. Added the required Applying the Software Development Process subsection and explained the Agile/Scrum-inspired iterative process.
+11. Reworked functional requirements and use cases with consistent UC01-UC18 IDs and implemented/partial/future-work status.
+12. Replaced vague non-functional requirements with measurable requirements and evaluation plans.
+13. Added a full ethics section covering privacy, location data, moderation, AI transparency, sponsored content, accessibility, data ownership, and security.
+14. Expanded the project plan with milestones, timeline table, dependencies, team assignment placeholders, Gantt chart placeholder, and project-specific risks.
+15. Improved the system architecture section with layered architecture, backend interactions, external services, alternatives, and justification for React Native CLI plus Firebase and Cloud Functions.
+16. Expanded detailed design with entity attributes, Firestore collection design, behavioral-flow placeholders, UI screenshot placeholders, and design-pattern analysis.
+17. Improved the implementation section with hardware/software environment, tool justifications, implementation modules, challenges, solutions, and lessons learned.
+18. Expanded testing and evaluation into unit/static, integration, system, acceptance, backend trust/security, and non-functional testing.
+19. Included verified command results:
+    - npm run mobile:typecheck: Passed on 29 April 2026.
+    - npm run mobile:lint: Passed on 29 April 2026.
+    - npm run test:backend-trust: Passed 10/10 tests on 29 April 2026.
+20. Rewrote the conclusion to connect achievements to objectives and to state limitations honestly.
+21. Cleaned Future Work so it contains only future improvements.
+22. Rewrote student reflections so each member has a distinct personal subsection.
+23. Added Appendix A with detailed use case specifications.
+24. Added Appendix B with detailed test case specifications.
+25. Added Appendix C with setup/run guide summary.
+26. Added Appendix D with a screenshots and diagrams evidence checklist.
+27. Fixed spelling, grammar, terminology, capitalization, table captions, figure captions, numbering, and consistency.
+
+TEMPLATE NOTE
+
+The current working folder contained SDP_final_full_app_updated.docx and the generated fixed document, but no separate official template file was found there. The available official template used as the Word reference structure was:
+/Users/unknownyahia/Downloads/CS_SDP_MergedReportTemplate_V2.docx
+
+REMAINING ITEMS THAT REQUIRE REAL TEAM EVIDENCE
+
+1. Add real student signatures and dates in the Declaration section, or leave signature fields blank if the department accepts unsigned digital submissions.
+2. Open the fixed Word document and update the generated Table of Contents, List of Figures, and List of Tables if Word asks for field updates.
+3. Insert the real use case diagram.
+4. Insert the real high-level architecture diagram.
+5. Insert the real class/entity diagram.
+6. Insert the real service/repository diagram.
+7. Insert the real behavioral diagrams for:
+   - Register/Login flow.
+   - Post activity update flow.
+   - Explore and AI summary flow.
+   - Promoted event flow.
+   - Report and moderation flow.
+   - XP, notification, and leaderboard flow.
+8. Insert the real Gantt chart.
+9. Replace timeline placeholder dates and assigned team member placeholders with the final dates and names from the project logbook or Git history.
+10. Insert real application screenshots for:
+    - Login/Register.
+    - Home.
+    - Explore Map.
+    - Post.
+    - Profile.
+    - Admin Console.
+11. Insert terminal screenshots or exported logs for:
+    - npm run mobile:typecheck.
+    - npm run mobile:lint.
+    - npm run test:backend-trust.
+12. Add real performance measurement evidence for feed load, login time, map rendering, and Cloud Function response times if available.
+13. Add real usability-study results if the team conducted formal user testing; otherwise keep the report wording as manual/limited acceptance testing.
+14. Add deployment evidence only if the application is actually released or deployed for production use.
+15. Add real Firebase project configuration screenshots only if required by the supervisor, and avoid exposing secrets or API keys.
+16. Add the final supervisor name, student names, and IDs if any placeholders are still incomplete.
+
+FINAL OUTPUT FILES
+
+1. SDP_final_full_app_updated_FIXED.docx
+2. SDP_final_full_app_updated_FIXED.md
+3. CHANGELOG_AND_REMAINING_ITEMS.txt

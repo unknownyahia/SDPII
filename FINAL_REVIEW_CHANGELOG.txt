@@ -1,0 +1,63 @@
+Spots Mobile Final Review Changelog
+Generated: 2026-04-29
+
+Final reviewed report:
+- SDP_final_full_app_updated_WITH_DIAGRAMS_FINAL_REVIEW.docx
+
+Backup created before final review edits:
+- SDP_final_full_app_updated_WITH_DIAGRAMS_BACKUP_BEFORE_FINAL_REVIEW.docx
+
+Diagram layout fixes performed:
+- Kept all inserted diagrams on light/white backgrounds.
+- Center-aligned diagram image paragraphs.
+- Preserved aspect ratios for all inserted figures.
+- Resized diagrams to improve readability.
+- Placed the Project Gantt Chart on a landscape section.
+- Placed Figures 6-9 on landscape pages because they are long sequence diagrams.
+- Placed Figures 10B and 11A on landscape pages because they are detailed moderation/notification sequence diagrams.
+- Kept Figures 1, 3, 4, 5, 10A, and 11B in portrait layout because their aspect ratios remain readable there.
+- Did not reinsert old crowded, duplicate, or dark-background diagrams.
+
+TOC and list updates performed:
+- Replaced the old Table of Contents placeholder sentence with a clean manual Table of Contents.
+- Included Declaration, Abstract, Acknowledgment, List of Figures, List of Tables, Chapters 1-11, References, and Appendices A-D.
+- Verified the List of Figures includes Figures 1-17, including split Figures 10A/10B and 11A/11B.
+- Verified the List of Tables remains present and lists Tables 1-21.
+- Left Word field updating enabled so Microsoft Word can refresh fields/page numbers when opened.
+
+Timeline placeholder fixes performed:
+- Removed all raw [Insert date] and [Insert duration] placeholders from Table 9.
+- Converted Table 9 into an evidence-based timeline using available project evidence dates.
+- Marked Semester 1 dates honestly as requiring team logbook confirmation.
+- Used available Semester 2 evidence dates: 2026-04-10, 2026-04-14, 2026-04-22, 2026-04-27, and 2026-04-29.
+- Kept the note under Figure 2 reminding the team to confirm exact planned dates and team assignments from the logbook.
+
+Appendix D updates performed:
+- Renamed Appendix D to "Appendix D - Remaining Evidence Checklist."
+- Removed outdated missing-diagram checklist items because Figures 1-11B have been inserted.
+- Added a note that remaining evidence mainly concerns real UI screenshots, terminal outputs, signatures, and final manual evaluation evidence.
+- Kept only the remaining real-evidence requirements.
+
+Remaining evidence still needed before final submission:
+- Signed declaration page.
+- Microsoft Word TOC update if accurate page numbers are required.
+- Login/Register UI screenshot.
+- Home screen screenshot.
+- Explore map screenshot.
+- Post screen screenshot.
+- Profile screen screenshot.
+- Admin Console screenshot.
+- Terminal screenshot for npm run mobile:typecheck.
+- Terminal screenshot for npm run mobile:lint.
+- Terminal screenshot for npm run test:backend-trust.
+- Performance measurement screenshot/table.
+- Usability testing evidence, if not conducted.
+- Production deployment/app-store evidence, if available or claimed.
+
+Final quality checks performed:
+- Confirmed no [Insert date] placeholders remain.
+- Confirmed no [Insert duration] placeholders remain.
+- Confirmed the old Table of Contents placeholder sentence was removed.
+- Confirmed Appendix D no longer lists Figures 1-11B as missing.
+- Confirmed screenshot and backend trust test evidence placeholders remain where real evidence was not provided.
+- Confirmed 13 diagram images remain embedded in the DOCX.

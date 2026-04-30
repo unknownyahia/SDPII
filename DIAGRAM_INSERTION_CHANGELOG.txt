@@ -1,0 +1,112 @@
+Spots Mobile Report Diagram Insertion Changelog
+Generated: 2026-04-29
+
+Final report created:
+- SDP_final_full_app_updated_WITH_DIAGRAMS.docx
+
+Backup created before editing:
+- SDP_final_full_app_updated_FIXED_BACKUP_BEFORE_DIAGRAMS.docx
+
+Major work completed:
+- Inserted readable light-background diagrams into SDP_final_full_app_updated_FIXED.docx.
+- Saved the edited report as SDP_final_full_app_updated_WITH_DIAGRAMS.docx.
+- Replaced the old single Figure 10 placeholder with split Figures 10A and 10B.
+- Replaced the old single Figure 11 placeholder with split Figures 11A and 11B.
+- Updated the List of Figures table to include Figures 10A, 10B, 11A, and 11B.
+- Added the required notes under Figures 1, 2, 10B, and 11A.
+- Preserved screenshot and terminal-output placeholders because real evidence files were not provided.
+- Set Word field update behavior so Word can refresh generated fields when opened.
+
+Inserted figures and source files:
+- Figure 1. Use Case Diagram
+  - Used: mermaid/selected_light/figure1_use_case_diagram.png
+  - Source: mermaid/mermaid-diagram (1).png
+
+- Figure 2. Project Gantt Chart
+  - Used: mermaid/selected_light/figure2_project_gantt_chart.png
+  - Source: mermaid/System Actor Flow-2026-04-29-142611.png
+
+- Figure 3. High-level layered architecture of Spots Mobile.
+  - Used: mermaid/selected_light/figure3_layered_architecture_simplified.png
+  - Regenerated from: mermaid/figure3_layered_architecture_simplified.mmd
+  - Reason: older architecture exports were too crowded for a Word report.
+
+- Figure 4. Structural/Class Model Diagram
+  - Used: mermaid/selected_light/figure4_structural_class_model.png
+  - Source: mermaid/System Actor Flow-2026-04-29-142813.png
+
+- Figure 5. Service and repository structure of Spots Mobile.
+  - Used: mermaid/selected_light/figure5_service_repository_simplified.png
+  - Regenerated from: mermaid/figure5_service_repository_simplified.mmd
+  - Reason: older service/repository exports were too crowded for a Word report.
+
+- Figure 6. Register/Login Flow
+  - Used: mermaid/selected_light/figure6_register_login_flow.png
+  - Source: mermaid/System Actor Flow-2026-04-29-143020.png
+
+- Figure 7. Post Activity Update Flow
+  - Used: mermaid/selected_light/figure7_post_activity_update_flow.png
+  - Source: mermaid/System Actor Flow-2026-04-29-143130.png
+
+- Figure 8. Explore and AI Summary Flow
+  - Used: mermaid/selected_light/figure8_explore_ai_summary_flow.png
+  - Source: mermaid/System Actor Flow-2026-04-29-143424.png
+
+- Figure 9. Promoted Event Flow
+  - Used: mermaid/selected_light/figure9_promoted_event_flow.png
+  - Source: mermaid/System Actor Flow-2026-04-29-143647.png
+
+- Figure 10A. User Report Creation Flow
+  - Used: mermaid/selected_light/figure10A_user_report_creation_flow.png
+  - Source: mermaid/mermaid-diagram (4).png
+
+- Figure 10B. Admin Moderation Flow
+  - Used: mermaid/selected_light/figure10B_admin_moderation_flow.png
+  - Source: mermaid/mermaid-diagram (5).png
+
+- Figure 11A. XP and Notification Trigger Flow
+  - Used: mermaid/selected_light/figure11A_xp_notification_trigger_flow.png
+  - Source: mermaid/mermaid-diagram (6).png
+
+- Figure 11B. Leaderboard Flow
+  - Used: mermaid/selected_light/figure11B_leaderboard_flow.png
+  - Source: mermaid/mermaid-diagram (7).png
+
+Ignored or moved out of the active diagram set:
+- mermaid/ignored/System Actor Flow-2026-04-29-142450.png
+  - Reason: old messy use case diagram with too many crossing lines.
+- mermaid/ignored/System Actor Flow-2026-04-29-142732.png
+  - Reason: old crowded high-level architecture diagram.
+- mermaid/ignored/System Actor Flow-2026-04-29-142940.png
+  - Reason: old crowded service/repository diagram.
+- mermaid/ignored/System Actor Flow-2026-04-29-143238.png
+  - Reason: duplicate Post Activity Update Flow.
+- mermaid/ignored/System Actor Flow-2026-04-29-143735.png
+  - Reason: old combined Report and Moderation Flow; split Figures 10A/10B were used instead.
+- mermaid/ignored/System Actor Flow-2026-04-29-143850.png
+  - Reason: old combined XP, Notification, and Leaderboard Flow; split Figures 11A/11B were used instead.
+- mermaid/ignored/mermaid-diagram (2).png
+  - Reason: crowded high-level architecture export; simplified Figure 3 was regenerated.
+- mermaid/ignored/mermaid-diagram (3).png
+  - Reason: crowded service/repository export; simplified Figure 5 was regenerated.
+- mermaid/ignored/mermaid-diagram.png
+  - Reason: duplicate/dark-background use case export.
+
+Remaining missing evidence or team-confirmation items:
+- Figure 12. Login/Register UI Screenshot Placeholder
+- Figure 13. Home Screen UI Screenshot Placeholder
+- Figure 14. Explore Map UI Screenshot Placeholder
+- Figure 15. Post Screen UI Screenshot Placeholder
+- Figure 16. Profile Screen UI Screenshot Placeholder
+- Figure 17. Admin Console UI Screenshot Placeholder
+- Typecheck terminal screenshot for npm run mobile:typecheck
+- Lint terminal screenshot for npm run mobile:lint
+- Backend trust test terminal screenshot for npm run test:backend-trust
+- Exact planned task dates, durations, dependencies, and assigned team members for the Gantt chart should be confirmed from the official team logbook.
+- Comment-reporting UI path should be confirmed before claiming full visible UI support for reporting comments.
+
+Quality checks performed:
+- Confirmed 13 diagram images are embedded in the final DOCX.
+- Confirmed no Figure 1 through Figure 11B placeholder text remains.
+- Confirmed UI screenshot and terminal-output placeholders remain intentionally.
+- Confirmed the List of Figures table includes the split 10A/10B and 11A/11B entries.

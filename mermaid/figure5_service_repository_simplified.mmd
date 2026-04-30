@@ -1,0 +1,12 @@
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "mainBkg": "#ffffff", "primaryColor": "#f8fafc", "primaryBorderColor": "#334155", "primaryTextColor": "#0f172a", "lineColor": "#475569", "fontFamily": "Arial"}}}%%
+flowchart LR
+    Screens["<b>Screens and UI Components</b><br/>LoginScreen, RegisterScreen<br/>HomeScreen, ExploreScreen, PostScreen, ProfileScreen<br/>PostInteractionPanel, AdminConsolePanel, LeaderboardPanel"]
+    Services["<b>Service Layer</b><br/>authService, profileService, subscriptionService, organizationService<br/>postService, exploreService, discoveryService, favoriteService, locationService<br/>commentService, reactionService, reportService, moderationService, notificationService<br/>eventService, summaryService, leaderboardService, analyticsService"]
+    Access["<b>Repository / Callable Access</b><br/>authRepository<br/>profile, posts, event, comment, reaction, favorite, report, moderation, notification, subscription, and analytics repositories<br/>Callable functions: summarizeArea, createPromotedEvent, getLeaderboard"]
+    Firebase["<b>Firebase Backend</b><br/>Firebase Authentication<br/>Cloud Firestore with Security Rules<br/>Cloud Functions triggers and callables"]
+    External["<b>External Services</b><br/>Map / geolocation provider<br/>OpenAI API"]
+
+    Screens --> Services --> Access --> Firebase --> External
+
+    classDef layer fill:#f8fafc,stroke:#334155,stroke-width:1px,color:#0f172a;
+    class Screens,Services,Access,Firebase,External layer;

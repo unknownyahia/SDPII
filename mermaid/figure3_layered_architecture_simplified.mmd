@@ -1,0 +1,17 @@
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "mainBkg": "#ffffff", "primaryColor": "#f8fafc", "primaryBorderColor": "#334155", "primaryTextColor": "#0f172a", "lineColor": "#475569", "fontFamily": "Arial"}}}%%
+flowchart LR
+    User(["End User"])
+    Presentation["<b>Presentation Layer</b><br/>React Native CLI app and web entry points<br/>Login/Register, Home, Explore, Post, Profile<br/>Reusable UI and English/Arabic localization"]
+    Services["<b>Application / Service Layer</b><br/>Auth, profile, subscription, organization<br/>Posts, explore, discovery, favorites, location<br/>Comments, reactions, reports, moderation, notifications<br/>Events, AI summaries, leaderboard, analytics"]
+    DataAccess["<b>Repository / Data Access Layer</b><br/>Authentication repository<br/>Firestore repositories for users, posts, events, reports, notifications, favorites, comments, reactions, subscriptions<br/>Callable access: summarizeArea, createPromotedEvent, getLeaderboard"]
+    Firebase["<b>Firebase Backend (Trusted Boundary)</b><br/>Firebase Authentication<br/>Cloud Firestore and Firestore Security Rules<br/>Cloud Functions for AI summaries, promoted events, XP, notifications, and leaderboard"]
+    External["<b>External Services</b><br/>Map / geolocation provider<br/>OpenAI API called only from Cloud Functions"]
+    Future["<b>Future Optional Services</b><br/>Payment gateway, production push notifications, and full media upload"]
+
+    User --> Presentation --> Services --> DataAccess --> Firebase --> External
+    Future -. future work .-> Services
+
+    classDef layer fill:#f8fafc,stroke:#334155,stroke-width:1px,color:#0f172a;
+    classDef future fill:#fff7ed,stroke:#c2410c,stroke-width:1px,color:#0f172a;
+    class Presentation,Services,DataAccess,Firebase,External layer;
+    class Future future;

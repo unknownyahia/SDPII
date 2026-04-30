@@ -110,6 +110,7 @@ const MOBILE_AVATAR_FALLBACK_URI =
   'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80';
 
 const CHIPS = EXPLORE_CATEGORY_OPTIONS;
+const SUPPORTS_NATIVE_HEATMAP = Platform.OS === 'android';
 
 function BellGlyph() {
   return (
@@ -229,6 +230,40 @@ function buildNativeHeatPoints(
     }));
 
   return [...postPoints, ...eventPoints];
+}
+
+function getFallbackHeatPointStyle(point: NativeHeatPoint) {
+  const intensity = Math.max(0.2, Math.min(1, point.weight));
+  const size = 18 + intensity * 28;
+  const opacity = 0.16 + intensity * 0.22;
+
+  if (intensity >= 0.78) {
+    return {
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: `rgba(255, 94, 94, ${opacity})`,
+      borderColor: 'rgba(255, 94, 94, 0.42)',
+    };
+  }
+
+  if (intensity >= 0.58) {
+    return {
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      backgroundColor: `rgba(255, 170, 92, ${opacity})`,
+      borderColor: 'rgba(255, 170, 92, 0.38)',
+    };
+  }
+
+  return {
+    width: size,
+    height: size,
+    borderRadius: size / 2,
+    backgroundColor: `rgba(82, 213, 255, ${opacity})`,
+    borderColor: 'rgba(82, 213, 255, 0.34)',
+  };
 }
 
 function nativeRegionToBounds(region: Region): NativeMapBounds {
@@ -1249,7 +1284,7 @@ export function ExploreScreen() {
             rotateEnabled={false}
             toolbarEnabled={false}
           >
-            {heatPoints.length > 0 ? (
+            {SUPPORTS_NATIVE_HEATMAP && heatPoints.length > 0 ? (
               <Heatmap
                 points={heatPoints}
                 radius={44}
@@ -1261,6 +1296,25 @@ export function ExploreScreen() {
                 }}
               />
             ) : null}
+
+            {!SUPPORTS_NATIVE_HEATMAP
+              ? heatPoints.map((point, index) => (
+                  <Marker
+                    key={`heat-fallback-${point.latitude}-${point.longitude}-${index}`}
+                    coordinate={{
+                      latitude: point.latitude,
+                      longitude: point.longitude,
+                    }}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                  >
+                    <View
+                      pointerEvents="none"
+                      style={[styles.heatFallbackPoint, getFallbackHeatPointStyle(point)]}
+                    />
+                  </Marker>
+                ))
+              : null}
 
             {browserLocation ? (
               <Marker
@@ -1762,6 +1816,9 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: '100%',
+  },
+  heatFallbackPoint: {
+    borderWidth: 1,
   },
   mapFloatButton: {
     position: 'absolute',

@@ -1,0 +1,66 @@
+UI Screenshots Insertion Changelog
+==================================
+
+Output report
+-------------
+- Created: SDP_final_full_app_updated_WITH_UI_SCREENSHOTS.docx
+- Backup created: SDP_final_full_app_updated_WITH_DIAGRAMS_FINAL_REVIEW_BACKUP_BEFORE_UI.docx
+
+Figures inserted
+----------------
+- Figure 12. Login/Register UI Screenshot
+  - Used:
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 02.56.49.png
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 02.57.00.png
+  - Inserted as a combined side-by-side figure.
+
+- Figure 13. Home Screen UI Screenshot
+  - Used:
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 02.58.19.png
+
+- Figure 14. Explore Map UI Screenshot
+  - Used:
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 03.07.21.png
+
+- Figure 15. Post Screen UI Screenshot
+  - Used:
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 03.07.31.png
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 03.07.37.png
+  - Inserted as a combined side-by-side figure.
+
+- Figure 16. Profile Screen UI Screenshot
+  - Used:
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 03.07.43.png
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 03.07.48.png
+  - Inserted as a combined side-by-side figure.
+
+- Figure 17. Admin Console UI Screenshot
+  - Used:
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 03.17.04.png
+    - UI_Screenshots/Simulator Screenshot - iPhone 17 - 2026-04-30 at 03.17.13.png
+  - Inserted as a combined side-by-side figure.
+
+Generated helper images
+-----------------------
+- UI_Screenshots/generated_report_figures/Figure_12_Login_Register_UI.png
+- UI_Screenshots/generated_report_figures/Figure_15_Post_UI.png
+- UI_Screenshots/generated_report_figures/Figure_16_Profile_UI.png
+- UI_Screenshots/generated_report_figures/Figure_17_Admin_Console_UI.png
+
+Document cleanup performed
+--------------------------
+- Replaced all Figure 12-Figure 17 UI screenshot placeholders with actual screenshots.
+- Removed "Placeholder" wording from Figure 12-Figure 17 captions.
+- Updated the List of Figures entries for Figure 12-Figure 17.
+- Updated Appendix D so UI screenshots are no longer listed as missing evidence.
+
+Remaining evidence still needed before final submission
+------------------------------------------------------
+- Signed declaration page.
+- Final Microsoft Word field update if exact Table of Contents page numbers are required.
+- Terminal screenshot for npm run mobile:typecheck.
+- Terminal screenshot for npm run mobile:lint.
+- Terminal screenshot for npm run test:backend-trust.
+- Performance measurement screenshot/table.
+- Usability testing evidence, if conducted.
+- Production deployment/app-store evidence, if available or claimed.
