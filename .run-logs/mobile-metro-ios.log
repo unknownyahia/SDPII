@@ -1,0 +1,48 @@
+
+> spots-mobile@0.0.1 start
+> react-native start
+
+
+Welcome to React Native v0.81
+Starting dev server on http://localhost:8081
+
+
+                        ▒▒▓▓▓▓▒▒
+                     ▒▓▓▓▒▒░░▒▒▓▓▓▒
+                  ▒▓▓▓▓░░░▒▒▒▒░░░▓▓▓▓▒
+                 ▓▓▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▓▓
+                 ▓▓░░░░░▒▓▓▓▓▓▓▒░░░░░▓▓
+                 ▓▓░░▓▓▒░░░▒▒░░░▒▓▒░░▓▓
+                 ▓▓░░▓▓▓▓▓▒▒▒▒▓▓▓▓▒░░▓▓
+                 ▓▓░░▓▓▓▓▓▓▓▓▓▓▓▓▓▒░░▓▓
+                 ▓▓▒░░▒▒▓▓▓▓▓▓▓▓▒░░░▒▓▓
+                  ▒▓▓▓▒░░░▒▓▓▒░░░▒▓▓▓▒
+                     ▒▓▓▓▒░░░░▒▓▓▓▒
+                        ▒▒▓▓▓▓▒▒
+
+
+                Welcome to Metro v0.83.5
+              Fast - Scalable - Integrated
+
+
+ INFO  Connection established to app='com.yahia.spotsmobile' on device='iPhone 17'.
+ INFO  [1m[7m💡 JavaScript logs have moved![22m They can now be viewed in React Native DevTools. Tip: Type [1mj[22m in the terminal to open (requires Google Chrome or Microsoft Edge).[27m
+ INFO  Dev server ready. Press Ctrl+C to exit.
+ INFO  Key commands available:
+
+  [1m[7m r [27m[22m - reload app(s)
+  [1m[7m d [27m[22m - open Dev Menu
+  [1m[7m j [27m[22m - open DevTools
+
+ INFO  Connection closed to device='iPhone 17' for app='com.yahia.spotsmobile' with code='1006' and reason=''.
+ BUNDLE  ./index.js ░░░░░░░░░░░░░░░░ 0% (0/1)
+ BUNDLE  ./index.js 
+ INFO  Connection established to app='com.spotsmobile' on device='iPhone 17 Pro'.
+ BUNDLE  ./index.js ░░░░░░░░░░░░░░░░ 0% (0/1)
+ BUNDLE  ./index.js 
+ INFO  Connection established to app='com.yahia.spotsmobile' on device='iPhone 17 Pro'.
+ ERROR  [timeout] connection terminated with Device for app='com.spotsmobile' on device='iPhone 17 Pro' after not responding for 60 seconds.
+ INFO  Connection closed to device='iPhone 17 Pro' for app='com.spotsmobile' with code='1006' and reason=''.
+ INFO  Connection closed to device='iPhone 17 Pro' for app='com.yahia.spotsmobile' with code='1006' and reason=''.
+ BUNDLE  ./index.js ░░░░░░░░░░░░░░░░ 0% (0/1)
+ BUNDLE  ./index.js 

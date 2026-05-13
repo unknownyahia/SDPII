@@ -446,7 +446,7 @@ export function ExploreMapSurface({
               }}
             >
               <Tooltip direction="top" offset={[0, -8]}>
-                {post.locationName || post.text}
+                {post.title || post.locationName || post.text}
               </Tooltip>
             </Marker>
           );

@@ -11,6 +11,14 @@ const summarizeAreaCallable = httpsCallable<
   SummarizeAreaResponse
 >(functions, 'summarizeArea');
 
+const FALLBACK_CATEGORY_LABELS: Record<string, string> = {
+  event: 'events',
+  fishing: 'fishing',
+  sighting: 'local sightings',
+  weather: 'outdoor conditions',
+};
+const MAX_SUMMARY_ITEM_TEXT_LENGTH = 280;
+
 function getCallableCode(error: unknown) {
   return typeof error === 'object' &&
     error !== null &&
@@ -56,13 +64,89 @@ function toSummaryError(error: unknown) {
   return error;
 }
 
+function normalizeSummaryText(value?: string | null) {
+  return (value ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function getSummaryItemText(post: SummarizeAreaRequest['posts'][number]) {
+  const title = normalizeSummaryText(post.title);
+  const text = normalizeSummaryText(post.text);
+
+  if (!title) {
+    return text.slice(0, MAX_SUMMARY_ITEM_TEXT_LENGTH);
+  }
+
+  if (!text) {
+    return title.slice(0, MAX_SUMMARY_ITEM_TEXT_LENGTH);
+  }
+
+  const startsWithTitle = text.toLocaleLowerCase().startsWith(title.toLocaleLowerCase());
+  const combined = startsWithTitle ? text : `${title}: ${text}`;
+  return combined.slice(0, MAX_SUMMARY_ITEM_TEXT_LENGTH);
+}
+
+function buildCallableSummaryRequest(request: SummarizeAreaRequest): SummarizeAreaRequest {
+  return {
+    posts: request.posts
+      .map(post => ({
+        ...post,
+        title: normalizeSummaryText(post.title) || null,
+        text: getSummaryItemText(post),
+      }))
+      .filter(post => post.text.length > 0),
+  };
+}
+
+function buildFallbackSummary(request: SummarizeAreaRequest) {
+  const posts = buildCallableSummaryRequest(request).posts.slice(0, 20);
+
+  if (posts.length === 0) {
+    return 'There are not enough visible updates to summarize yet.';
+  }
+
+  const categoryCounts = new Map<string, number>();
+  const sampleTexts: string[] = [];
+
+  posts.forEach(post => {
+    const category = post.category ?? 'general';
+    categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
+
+    if (sampleTexts.length < 2) {
+      sampleTexts.push(normalizeSummaryText(post.text).replace(/[.!?]+$/, ''));
+    }
+  });
+
+  const categories = [...categoryCounts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([category]) => FALLBACK_CATEGORY_LABELS[category] ?? 'local updates');
+  const categoryPhrase = categories.length > 0 ? categories.join(', ') : 'local updates';
+  const samplePhrase =
+    sampleTexts.length > 0
+      ? ` Notable signals mention ${sampleTexts.join('; ')}.`
+      : '';
+
+  return `This view has ${posts.length} visible update${
+    posts.length === 1 ? '' : 's'
+  }, mainly around ${categoryPhrase}.${samplePhrase} Check the top cards and map markers for the freshest nearby context before you go.`;
+}
+
 export async function summarizeAreaPosts(
   request: SummarizeAreaRequest
 ): Promise<string> {
+  const callableRequest = buildCallableSummaryRequest(request);
+
   try {
-    const result = await summarizeAreaCallable(request);
-    return result.data.summary;
+    const result = await summarizeAreaCallable(callableRequest);
+    return result.data.summary?.trim() || buildFallbackSummary(callableRequest);
   } catch (error) {
-    throw toSummaryError(error);
+    const summaryError = toSummaryError(error);
+    const fallbackSummary = buildFallbackSummary(callableRequest);
+
+    if (fallbackSummary) {
+      return fallbackSummary;
+    }
+
+    throw summaryError;
   }
 }

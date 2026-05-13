@@ -4,8 +4,6 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useLocalization } from '../../context/LocalizationContext';
 import { loadLeaderboard } from '../../services/leaderboardService';
 import { colors, radius, spacing, typography } from '../../theme/designSystem';
-import { getErrorMessage } from '../../utils/dataAccessError';
-import { showAlert } from '../../utils/showAlert';
 import type { LeaderboardEntry } from '../../types/leaderboard';
 
 export function LeaderboardPanel() {
@@ -23,10 +21,12 @@ export function LeaderboardPanel() {
     try {
       const nextEntries = await loadLeaderboard(10);
       setEntries(nextEntries);
-    } catch (error) {
-      const message = getErrorMessage(error, 'Unable to load leaderboard right now.');
-      setErrorMessage(message);
-      showAlert(language === 'ar' ? 'تعذر تحميل المتصدرين' : 'Could not load leaderboard', message);
+    } catch {
+      setErrorMessage(
+        language === 'ar'
+          ? 'تعذر تحميل المتصدرين الآن.'
+          : 'Leaderboard is temporarily unavailable.'
+      );
     } finally {
       setLoading(false);
     }

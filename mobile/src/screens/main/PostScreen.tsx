@@ -73,6 +73,8 @@ type MobileCopy = {
   sectionTwo: string;
   sectionThree: string;
   sectionThreeSubtitle: string;
+  titleLabel: string;
+  titlePlaceholder: string;
   textPlaceholder: string;
   locationPlaceholder: string;
   nearMe: string;
@@ -97,6 +99,7 @@ type MobileCopy = {
   retry: string;
 };
 
+const TITLE_LIMIT = 80;
 const CHARACTER_LIMIT = 280;
 
 const MOBILE_AVATAR_FALLBACK_URI =
@@ -153,6 +156,8 @@ function getMobileCopy(language: AppLanguage): MobileCopy {
       sectionTwo: 'أين يحدث هذا؟',
       sectionThree: 'أضف صورة أو فيديو (اختياري)',
       sectionThreeSubtitle: 'اعرضه بشكل أفضل. الصور والفيديوهات تعزز التفاعل.',
+      titleLabel: 'عنوان المنشور',
+      titlePlaceholder: 'أضف عنوانا قصيرا',
       textPlaceholder: 'اكتب ما يحدث الآن...',
       locationPlaceholder: 'ابحث عن مكان أو منطقة أو معلم',
       nearMe: 'بالقرب مني',
@@ -193,6 +198,8 @@ function getMobileCopy(language: AppLanguage): MobileCopy {
     sectionTwo: 'Where is this happening?',
     sectionThree: 'Add a photo or video (optional)',
     sectionThreeSubtitle: 'Show it off! Photos and videos make updates stand out.',
+    titleLabel: 'Post title',
+    titlePlaceholder: 'Add a short title',
     textPlaceholder: "Describe what's happening...",
     locationPlaceholder: 'Search for a place, area, or landmark',
     nearMe: 'Near Me',
@@ -301,6 +308,7 @@ export function PostScreen() {
     React.useState<DisplayCategoryId>(DEFAULT_COMPOSE_CATEGORY.id);
   const [backendCategory, setBackendCategory] =
     React.useState<SpotCategory>(DEFAULT_COMPOSE_CATEGORY.backendCategory);
+  const [postTitle, setPostTitle] = React.useState('');
   const [postText, setPostText] = React.useState('');
   const [postLoading, setPostLoading] = React.useState(false);
   const [lastPostSuccess, setLastPostSuccess] = React.useState(false);
@@ -397,10 +405,10 @@ export function PostScreen() {
   }, [handleSetupIssue, refreshToken, user?.id]);
 
   React.useEffect(() => {
-    if (postText.trim()) {
+    if (postTitle.trim() || postText.trim()) {
       setLastPostSuccess(false);
     }
-  }, [postText]);
+  }, [postText, postTitle]);
 
   const promotedEventAccess = getPromotedEventAccessState({
     userRole,
@@ -428,6 +436,7 @@ export function PostScreen() {
     return copy.locationHint;
   }, [capturePointPreview, copy.locationHint, copy.locationLoading, locationName, locationPreviewLoading]);
 
+  const remainingTitleLabel = `${postTitle.length}/${TITLE_LIMIT}`;
   const remainingCharacterLabel = `${postText.length}/${CHARACTER_LIMIT}`;
 
   const handleRetrySetup = React.useCallback(() => {
@@ -525,6 +534,7 @@ export function PostScreen() {
         selectedLocationOverride ?? findLocationPreset(locationQuery);
       const result = await publishCurrentLocationPost({
         userId: user?.id,
+        title: postTitle,
         text: postText,
         category: backendCategory,
         displayCategory: composeCategory,
@@ -537,9 +547,21 @@ export function PostScreen() {
       if (!locationQuery.trim()) {
         setLocationQuery(result.locationName);
       }
+      setPostTitle('');
       setPostText('');
       setMediaItems([]);
       setLastPostSuccess(true);
+      navigation.navigate('Explore', {
+        query: '',
+        where: language === 'ar' ? 'قطر' : 'Qatar',
+        chipId: 'all',
+        focusPostId: result.postId,
+        focusLatitude: result.latitude,
+        focusLongitude: result.longitude,
+        focusPostTitle: result.title,
+        focusPostText: result.text,
+        focusLocationName: result.locationName || null,
+      });
       showAlert(t('post.createdAlertTitle'), t('post.createdAlertBody'));
     } catch (error: any) {
       if (error instanceof PostValidationError) {
@@ -743,6 +765,30 @@ export function PostScreen() {
               );
             })}
           </ScrollView>
+
+          <View style={styles.titleInputWrap}>
+            <Text
+              style={[
+                styles.fieldLabel,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            >
+              {copy.titleLabel}
+            </Text>
+            <TextInput
+              value={postTitle}
+              onChangeText={value => setPostTitle(value.slice(0, TITLE_LIMIT))}
+              placeholder={copy.titlePlaceholder}
+              placeholderTextColor={colors.textSubtle}
+              maxLength={TITLE_LIMIT}
+              returnKeyType="next"
+              style={[
+                styles.titleInput,
+                { textAlign: getTextAlign(), writingDirection: isRTL ? 'rtl' : 'ltr' },
+              ]}
+            />
+            <Text style={styles.titleInputCount}>{remainingTitleLabel}</Text>
+          </View>
 
           <View style={styles.textAreaWrap}>
             <TextInput
@@ -1446,6 +1492,40 @@ const styles = StyleSheet.create({
   categoryChipLabelActive: {
     color: colors.primary,
     fontWeight: '600',
+  },
+  titleInputWrap: {
+    minHeight: 84,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#DEDEDE',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: 4,
+  },
+  fieldLabel: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  titleInput: {
+    ...typography.body,
+    color: colors.text,
+    minHeight: 28,
+    padding: 0,
+    margin: 0,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  titleInputCount: {
+    ...typography.caption,
+    color: colors.textSubtle,
+    fontSize: 12,
+    lineHeight: 16,
+    alignSelf: 'flex-end',
   },
   textAreaWrap: {
     borderRadius: radius.md,

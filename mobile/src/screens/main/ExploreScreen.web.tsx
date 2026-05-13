@@ -124,7 +124,7 @@ function getCopy(language: 'en' | 'ar') {
       summaryEmpty: 'لا توجد نتائج كافية لتلخيص هذه المنطقة.',
       summaryError: 'تعذر إنشاء الملخص الآن.',
       summaryPrompt: 'أنشئ ملخصًا حقيقيًا من النتائج الظاهرة في القائمة والخريطة.',
-      generateSummary: 'لخّص',
+      generateSummary: 'لخّص الأماكن القريبة مني',
       locationDeniedTitle: 'تعذر قراءة موقع المتصفح',
       locationEnabledTitle: 'تم تفعيل الموقع',
       savedTitle: 'تم حفظ المكان',
@@ -163,7 +163,7 @@ function getCopy(language: 'en' | 'ar') {
     summaryEmpty: 'There are not enough results in this view to summarize.',
     summaryError: 'Unable to generate an area summary right now.',
     summaryPrompt: 'Generate a real summary from the results currently visible in the list and map.',
-    generateSummary: 'Summarize',
+    generateSummary: 'Summarize spots near me',
     locationDeniedTitle: 'Browser location could not be read',
     locationEnabledTitle: 'Location enabled',
     savedTitle: 'Saved to favorites',
@@ -679,10 +679,12 @@ export function ExploreScreen() {
       .filter(card => card.rawPost || card.rawEvent)
       .slice(0, 20)
       .map(card => ({
+        kind: card.rawEvent ? 'event' as const : 'post' as const,
+        title: card.rawPost?.title ?? card.rawEvent?.title ?? card.title,
         text: card.rawPost?.text ?? card.rawEvent?.description ?? card.description,
         category: card.rawPost?.category ?? card.rawEvent?.category,
       }))
-      .filter(item => item.text.trim().length > 0);
+      .filter(item => item.title?.trim() || item.text.trim().length > 0);
 
     if (summarizable.length === 0) {
       setAreaSummary(copy.summaryEmpty);

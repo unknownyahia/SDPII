@@ -32,6 +32,7 @@ function mapPostDocument(
     placeId: typeof data.placeId === 'string' ? data.placeId : null,
     heroImageUrl:
       typeof data.heroImageUrl === 'string' ? data.heroImageUrl : null,
+    title: typeof data.title === 'string' ? data.title : null,
     text: typeof data.text === 'string' ? data.text : '',
     category: isSpotCategory(data.category) ? data.category : undefined,
     displayCategory: isDisplayCategoryId(data.displayCategory)

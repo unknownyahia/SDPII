@@ -1,0 +1,9 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -workspace SpotsMobile.xcworkspace -configuration Debug -scheme SpotsMobile -destination id=00008120-0004042001E0201E build
+
+2026-05-06 12:51:22.737 xcodebuild[22656:398429] Writing error result bundle to /var/folders/72/p77tbs2d62q_xv8hpprfml180000gn/T/ResultBundle_2026-06-05_12-51-0022.xcresult
+xcodebuild: error: Timed out waiting for all destinations matching the provided destination specifier to become available
+
+
+	Available destinations for the "SpotsMobile" scheme:
+		{ platform:iOS, arch:arm64, id:00008120-0004042001E0201E, name:‏iPhone ‏⁨Ghanim⁩, error:Developer Mode disabled To use ‏iPhone ‏⁨Ghanim⁩ for development, enable Developer Mode in Settings → Privacy & Security. }

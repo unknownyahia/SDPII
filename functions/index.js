@@ -9,7 +9,7 @@ const db = admin.firestore();
 const DEFAULT_FUNCTION_SERVICE_ACCOUNT = "spots-42d51@appspot.gserviceaccount.com";
 
 function getOpenAIClient() {
-  const apiKey = functions.config().openai?.key;
+  const apiKey = process.env.OPENAI_API_KEY || functions.config().openai?.key;
 
   if (!apiKey) {
     throw new functions.https.HttpsError(
@@ -36,6 +36,52 @@ function logOpenAIError(error) {
     code: getOpenAIErrorCode(error) || null,
     message: getOpenAIErrorMessage(error) || "Unknown OpenAI error.",
   });
+}
+
+function getSummaryCategoryLabel(category) {
+  switch (category) {
+    case "fishing":
+      return "fishing";
+    case "event":
+      return "events";
+    case "weather":
+      return "outdoor conditions";
+    case "sighting":
+      return "local sightings";
+    default:
+      return "local updates";
+  }
+}
+
+function buildFallbackAreaSummary(posts) {
+  const categoryCounts = new Map();
+  const sampleTexts = [];
+
+  posts.forEach((post) => {
+    const category = post.category || "general";
+    categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+
+    if (sampleTexts.length < 2) {
+      const cleanText = post.text.trim().replace(/\s+/g, " ");
+      sampleTexts.push(cleanText.replace(/[.!?]+$/, ""));
+    }
+  });
+
+  const rankedCategories = [...categoryCounts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 3)
+    .map(([category]) => getSummaryCategoryLabel(category));
+
+  const categoryPhrase = rankedCategories.length > 0 ?
+    rankedCategories.join(", ") :
+    "local updates";
+  const samplePhrase = sampleTexts.length > 0 ?
+    ` Notable signals mention ${sampleTexts.join("; ")}.` :
+    "";
+
+  return `This view has ${posts.length} visible update${
+    posts.length === 1 ? "" : "s"
+  }, mainly around ${categoryPhrase}.${samplePhrase} Check the top cards and map markers for the freshest nearby context before you go.`;
 }
 
 const XP_RULES = {
@@ -396,6 +442,7 @@ exports.createPromotedEvent = functions.runWith({
 // Callable function to summarize posts in an area
 exports.summarizeArea = functions.runWith({
   serviceAccount: DEFAULT_FUNCTION_SERVICE_ACCOUNT,
+  secrets: ["OPENAI_API_KEY"],
 }).https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError(
@@ -433,6 +480,7 @@ exports.summarizeArea = functions.runWith({
     );
   }
 
+  const fallbackSummary = buildFallbackAreaSummary(limitedPosts);
   const joinedPosts = limitedPosts
     .map((p, i) => {
       const safeText = p.text.trim().replace(/\s+/g, " ").slice(0, 280);
@@ -472,6 +520,11 @@ ${joinedPosts}
     return { summary };
   } catch (err) {
     if (err instanceof functions.https.HttpsError) {
+      if (err.code === "failed-precondition") {
+        console.warn("OpenAI configuration missing; using fallback summary.");
+        return {summary: fallbackSummary};
+      }
+
       throw err;
     }
 
@@ -484,18 +537,78 @@ ${joinedPosts}
       openAIErrorCode === "insufficient_quota" ||
       openAIErrorMessage.includes("exceeded your current quota")
     ) {
-      throw new functions.https.HttpsError(
-        "resource-exhausted",
-        "Area summary is temporarily unavailable because OpenAI quota is exhausted."
-      );
+      console.warn("OpenAI quota exhausted; using fallback summary.");
+      return {summary: fallbackSummary};
     }
 
-    throw new functions.https.HttpsError(
-      "internal",
-      "Failed to generate summary"
-    );
+    console.warn("OpenAI summary failed; using fallback summary.");
+    return {summary: fallbackSummary};
   }
 });
+
+function getLeaderboardDocXp(doc) {
+  const profile = doc.data() || {};
+  return typeof profile.xp === "number" ? profile.xp : 0;
+}
+
+function mapLeaderboardEntries(docs, currentUserId) {
+  return docs.map((doc, index) => {
+    const profile = doc.data() || {};
+    const username = typeof profile.username === "string" &&
+      profile.username.trim() ?
+      profile.username.trim() : null;
+    const email = typeof profile.email === "string" ? profile.email : null;
+    const privacyMode = profile.privacyMode === true;
+
+    return {
+      userId: doc.id,
+      rank: index + 1,
+      displayName: privacyMode ?
+        "Private Spots user" :
+        username || email || "Spots user",
+      xp: getLeaderboardDocXp(doc),
+      role: typeof profile.role === "string" ? profile.role : "user",
+      badgeCount: Array.isArray(profile.badgeKeys) ?
+        profile.badgeKeys.length : 0,
+      isCurrentUser: doc.id === currentUserId,
+    };
+  });
+}
+
+function logLeaderboardError(label, error) {
+  console.error(label, {
+    code: error?.code || null,
+    message: error?.message || "Unknown leaderboard error.",
+  });
+}
+
+async function loadLeaderboardDocs(safeLimit) {
+  try {
+    const snapshot = await db.collection("users")
+      .orderBy("xp", "desc")
+      .limit(safeLimit)
+      .get();
+
+    return snapshot.docs;
+  } catch (error) {
+    logLeaderboardError("Leaderboard query failed.", error);
+  }
+
+  try {
+    const snapshot = await db.collection("users")
+      .limit(Math.max(safeLimit, 25))
+      .get();
+
+    return snapshot.docs
+      .sort((left, right) =>
+        getLeaderboardDocXp(right) - getLeaderboardDocXp(left)
+      )
+      .slice(0, safeLimit);
+  } catch (error) {
+    logLeaderboardError("Leaderboard fallback failed.", error);
+    return [];
+  }
+}
 
 exports.getLeaderboard = functions.runWith({
   serviceAccount: DEFAULT_FUNCTION_SERVICE_ACCOUNT,
@@ -510,32 +623,8 @@ exports.getLeaderboard = functions.runWith({
   const requestedLimit = typeof data?.limit === "number" ? data.limit : 10;
   const safeLimit = Math.max(3, Math.min(25, requestedLimit));
 
-  const snapshot = await db.collection("users")
-    .orderBy("xp", "desc")
-    .limit(safeLimit)
-    .get();
-
-  const entries = snapshot.docs.map((doc, index) => {
-    const profile = doc.data() || {};
-    const username = typeof profile.username === "string" &&
-      profile.username.trim() ?
-      profile.username.trim() : null;
-    const email = typeof profile.email === "string" ? profile.email : null;
-    const privacyMode = profile.privacyMode === true;
-
-    return {
-      userId: doc.id,
-      rank: index + 1,
-      displayName: privacyMode ?
-        "Private Spots user" :
-        username || email || "Spots user",
-      xp: typeof profile.xp === "number" ? profile.xp : 0,
-      role: typeof profile.role === "string" ? profile.role : "user",
-      badgeCount: Array.isArray(profile.badgeKeys) ?
-        profile.badgeKeys.length : 0,
-      isCurrentUser: doc.id === context.auth.uid,
-    };
-  });
+  const docs = await loadLeaderboardDocs(safeLimit);
+  const entries = mapLeaderboardEntries(docs, context.auth.uid);
 
   return {entries};
 });

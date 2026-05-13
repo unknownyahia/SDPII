@@ -7,6 +7,7 @@ export type SpotPost = {
   userId?: string;
   placeId?: string | null;
   heroImageUrl?: string | null;
+  title?: string | null;
   text: string;
   category?: SpotCategory;
   displayCategory?: DisplayCategoryId | null;
@@ -18,6 +19,7 @@ export type SpotPost = {
 
 export type CreateSpotPostInput = {
   userId: string;
+  title: string;
   text: string;
   category: SpotCategory;
   displayCategory?: DisplayCategoryId | null;
@@ -28,4 +30,4 @@ export type CreateSpotPostInput = {
   locationName?: string | null;
 };
 
-export type SummarizableSpotPost = Pick<SpotPost, 'text' | 'category'>;
+export type SummarizableSpotPost = Pick<SpotPost, 'title' | 'text' | 'category'>;

@@ -108,12 +108,13 @@ export function filterExplorePosts(
     const matchesCategory = matchesExploreCategory(
       post.category,
       selectedCategory,
-      [post.text, post.locationName],
+      [post.title, post.text, post.locationName],
       post.displayCategory
     );
 
     const matchesSearch = matchesSearchQuery(searchQuery, [
       post.text,
+      post.title,
       post.locationName,
       post.displayCategory,
       getDisplayCategorySearchAliases(post.displayCategory),

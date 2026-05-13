@@ -210,6 +210,11 @@ function getAreaParts(input?: string | null) {
 }
 
 function getSpotTitle(post: SpotPost, language?: AppLanguage) {
+  const postTitle = post.title?.trim();
+  if (postTitle) {
+    return postTitle;
+  }
+
   const parts = getAreaParts(post.locationName);
   const baseTitle =
     parts.title ||

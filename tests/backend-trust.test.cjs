@@ -77,6 +77,7 @@ async function seedPost(postId, data) {
     const db = context.firestore();
     await setDoc(doc(db, 'posts', postId), {
       userId: data.userId,
+      title: data.title ?? 'Seed post',
       text: data.text,
       category: data.category,
       lat: data.lat,
@@ -291,7 +292,33 @@ test('rules: user can create own post, comment, like, and favorite', async () =>
   await assertSucceeds(
     addDoc(collection(aliceDb, 'posts'), {
       userId: 'alice',
+      title: 'My first post',
       text: 'My first post',
+      category: 'event',
+      lat: 25.28,
+      lng: 51.53,
+      locationName: 'Doha',
+      createdAt: new Date(),
+    })
+  );
+
+  await assertFails(
+    addDoc(collection(aliceDb, 'posts'), {
+      userId: 'alice',
+      text: 'Missing title should fail',
+      category: 'event',
+      lat: 25.28,
+      lng: 51.53,
+      locationName: 'Doha',
+      createdAt: new Date(),
+    })
+  );
+
+  await assertFails(
+    addDoc(collection(aliceDb, 'posts'), {
+      userId: 'alice',
+      title: 'x'.repeat(81),
+      text: 'Too long title should fail',
       category: 'event',
       lat: 25.28,
       lng: 51.53,
@@ -426,6 +453,7 @@ test('backend: post creation awards post XP', async () => {
   const posterDb = testEnv.authenticatedContext('poster').firestore();
   await addDoc(collection(posterDb, 'posts'), {
     userId: 'poster',
+    title: 'Backend XP post',
     text: 'Backend XP post',
     category: 'fishing',
     lat: 25.28,

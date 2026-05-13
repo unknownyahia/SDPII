@@ -11,10 +11,12 @@ import type { LocationOverride } from './locationPresets';
 export class PostValidationError extends Error {}
 export class PostLocationPermissionError extends Error {}
 
+const MAX_POST_TITLE_LENGTH = 80;
 const MAX_POST_TEXT_LENGTH = 280;
 
 type PublishPostInput = {
   userId: string | null | undefined;
+  title: string;
   text: string;
   category: SpotCategory;
   displayCategory?: DisplayCategoryId | null;
@@ -23,8 +25,17 @@ type PublishPostInput = {
 };
 
 type PublishPostResult = {
+  postId: string;
   locationName: string;
+  latitude: number;
+  longitude: number;
+  title: string;
+  text: string;
 };
+
+function normalizePostTitle(title: string) {
+  return title.trim();
+}
 
 function normalizePostText(text: string) {
   return text.trim();
@@ -52,6 +63,17 @@ export async function publishCurrentLocationPost(
 ): Promise<PublishPostResult> {
   if (!input.userId) {
     throw new PostValidationError('You must be logged in to create a post.');
+  }
+
+  const normalizedTitle = normalizePostTitle(input.title);
+  if (!normalizedTitle) {
+    throw new PostValidationError('Please enter a title for your update.');
+  }
+
+  if (normalizedTitle.length > MAX_POST_TITLE_LENGTH) {
+    throw new PostValidationError(
+      `Post title must be ${MAX_POST_TITLE_LENGTH} characters or fewer.`
+    );
   }
 
   const normalizedText = normalizePostText(input.text);
@@ -85,6 +107,7 @@ export async function publishCurrentLocationPost(
 
   const postInput: CreateSpotPostInput = {
     userId: input.userId,
+    title: normalizedTitle,
     text: normalizedText,
     category: input.category,
     displayCategory: input.displayCategory ?? null,
@@ -94,9 +117,14 @@ export async function publishCurrentLocationPost(
     heroImageUrl: normalizeHeroImageUrl(input.heroImageUrl),
   };
 
-  await createPost(postInput);
+  const postRef = await createPost(postInput);
 
   return {
+    postId: postRef.id,
     locationName,
+    latitude,
+    longitude,
+    title: normalizedTitle,
+    text: normalizedText,
   };
 }

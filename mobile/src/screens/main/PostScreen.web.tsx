@@ -67,6 +67,7 @@ type MediaPreview = {
   objectUrl?: boolean;
 };
 
+const TITLE_LIMIT = 80;
 const CHARACTER_LIMIT = 280;
 
 const PREVIEW_IMAGE =
@@ -92,6 +93,8 @@ function getCopy(language: AppLanguage) {
       sectionOne: '1. ما الذي يحدث؟',
       sectionTwo: '2. أين يحدث هذا؟',
       sectionThree: '3. أضف صورة أو فيديو (اختياري)',
+      titleLabel: 'عنوان المنشور',
+      titlePlaceholder: 'أضف عنوانا قصيرا',
       textPlaceholder: 'صف المشهد أو الازدحام أو الطقس أو ما وجدته...',
       locationPlaceholder: 'ابحث عن مكان أو حي أو منطقة',
       browserHint: 'يتم استخدام المنطقة المختارة عند النشر. اختر بالقرب مني لاستخدام موقع المتصفح.',
@@ -122,6 +125,7 @@ function getCopy(language: AppLanguage) {
       setupIssueTitle: 'تعذر تحميل بعض بيانات النشر',
       retry: 'إعادة المحاولة',
       learnMore: 'عرض إعدادات الحساب',
+      emptyTitle: 'أضف عنوانا قبل النشر.',
       emptyPost: 'اكتب تحديثا قبل النشر.',
       eventFormTitle: 'إنشاء فعالية مروجة',
       eventTitlePlaceholder: 'اسم الفعالية',
@@ -139,6 +143,8 @@ function getCopy(language: AppLanguage) {
     sectionOne: "1. What's happening?",
     sectionTwo: '2. Where is this happening?',
     sectionThree: '3. Add a photo or video (optional)',
+    titleLabel: 'Post title',
+    titlePlaceholder: 'Add a short title',
     textPlaceholder: 'Describe the scene, crowd, weather, or what you found...',
     locationPlaceholder: 'Search for a place, neighborhood, or area',
     browserHint:
@@ -170,6 +176,7 @@ function getCopy(language: AppLanguage) {
     setupIssueTitle: 'Publishing access data could not be fully loaded',
     retry: 'Retry',
     learnMore: 'View account settings',
+    emptyTitle: 'Enter a title before publishing.',
     emptyPost: 'Enter an update before publishing.',
     eventFormTitle: 'Create promoted event',
     eventTitlePlaceholder: 'Event title',
@@ -228,6 +235,7 @@ export function PostScreen() {
 
   const [composeCategory, setComposeCategory] =
     React.useState<PostCategoryOption>(DEFAULT_COMPOSE_CATEGORY);
+  const [postTitle, setPostTitle] = React.useState('');
   const [text, setText] = React.useState('');
   const [locationQuery, setLocationQuery] = React.useState(language === 'ar' ? 'قطر' : 'Qatar');
   const [selectedArea, setSelectedArea] = React.useState<string | null>(null);
@@ -330,10 +338,10 @@ export function PostScreen() {
   }, [handleSetupIssue, refreshToken, user?.id]);
 
   React.useEffect(() => {
-    if (text.trim()) {
+    if (postTitle.trim() || text.trim()) {
       setLastPostSuccess(false);
     }
-  }, [text]);
+  }, [postTitle, text]);
 
   const promotedEventAccess = getPromotedEventAccessState({
     userRole,
@@ -353,6 +361,9 @@ export function PostScreen() {
     : locationPreview || copy.browserHint;
   const previewLocation = locationPreview || locationQuery || (language === 'ar' ? 'قطر' : 'Qatar');
   const selectedCategoryLabel = getCategoryOptionLabel(composeCategory, language);
+  const previewPostTitle =
+    postTitle.trim() ||
+    `${selectedCategoryLabel} ${language === 'ar' ? 'تحديث محلي' : 'local update'}`;
 
   const handleRetrySetup = React.useCallback(() => {
     setSetupIssue(null);
@@ -469,6 +480,11 @@ export function PostScreen() {
   }, []);
 
   const handleCreatePost = React.useCallback(async () => {
+    if (!postTitle.trim()) {
+      showAlert(t('post.emptyPost'), copy.emptyTitle);
+      return;
+    }
+
     if (!text.trim()) {
       showAlert(t('post.emptyPost'), copy.emptyPost);
       return;
@@ -482,6 +498,7 @@ export function PostScreen() {
         selectedLocationOverride ?? findLocationPreset(locationQuery);
       const result = await publishCurrentLocationPost({
         userId: user?.id,
+        title: postTitle,
         text,
         category: composeCategory.backendCategory,
         displayCategory: composeCategory.id,
@@ -493,6 +510,7 @@ export function PostScreen() {
       if (!locationQuery.trim()) {
         setLocationQuery(result.locationName);
       }
+      setPostTitle('');
       setText('');
       objectUrlsRef.current.forEach(uri => {
         URL.revokeObjectURL(uri);
@@ -520,10 +538,12 @@ export function PostScreen() {
   }, [
     composeCategory.backendCategory,
     composeCategory.id,
+    copy.emptyTitle,
     copy.emptyPost,
     language,
     locationQuery,
     mediaItems,
+    postTitle,
     selectedLocationOverride,
     t,
     text,
@@ -667,6 +687,29 @@ export function PostScreen() {
                     </Pressable>
                   );
                 })}
+              </View>
+
+              <View style={styles.titleInputWrap}>
+                <Text
+                  style={[
+                    styles.fieldLabel,
+                    { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                >
+                  {copy.titleLabel}
+                </Text>
+                <TextInput
+                  value={postTitle}
+                  onChangeText={value => setPostTitle(value.slice(0, TITLE_LIMIT))}
+                  maxLength={TITLE_LIMIT}
+                  placeholder={copy.titlePlaceholder}
+                  placeholderTextColor={webDesktopColors.textSoft}
+                  style={[
+                    styles.titleInput,
+                    { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                  ]}
+                />
+                <Text style={styles.titleCount}>{postTitle.length} / {TITLE_LIMIT}</Text>
               </View>
 
               <View style={styles.textAreaWrap}>
@@ -1018,7 +1061,7 @@ export function PostScreen() {
                 <Image source={{ uri: getPreviewImage(mediaItems) }} style={styles.previewImage} />
                 <View style={styles.previewBody}>
                   <Text style={styles.previewTitle} numberOfLines={2}>
-                    {selectedCategoryLabel} {language === 'ar' ? 'تحديث محلي' : 'local update'}
+                    {previewPostTitle}
                   </Text>
                   <Text style={styles.previewDescription} numberOfLines={3}>
                     {text.trim() || copy.textPlaceholder}
@@ -1168,8 +1211,40 @@ const styles = StyleSheet.create({
     color: webDesktopColors.primary,
   },
 
-  textAreaWrap: {
+  titleInputWrap: {
     marginTop: 18,
+    minHeight: 90,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: webDesktopColors.border,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 5,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '800',
+    color: webDesktopColors.textSoft,
+  },
+  titleInput: {
+    minHeight: 28,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: webDesktopColors.text,
+    padding: 0,
+  },
+  titleCount: {
+    alignSelf: 'flex-end',
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 15,
+    color: webDesktopColors.textSoft,
+  },
+  textAreaWrap: {
+    marginTop: 12,
     minHeight: 150,
     borderRadius: 18,
     borderWidth: 1,

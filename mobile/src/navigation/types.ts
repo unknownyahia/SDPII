@@ -13,6 +13,12 @@ export type ExploreRouteParams = {
   where?: string;
   chipId?: ExploreLaunchChipId;
   focusSearch?: boolean;
+  focusPostId?: string;
+  focusLatitude?: number;
+  focusLongitude?: number;
+  focusPostTitle?: string;
+  focusPostText?: string;
+  focusLocationName?: string | null;
 };
 
 export type MainTabParamList = {

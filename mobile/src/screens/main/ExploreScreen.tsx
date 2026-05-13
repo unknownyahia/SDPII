@@ -144,6 +144,41 @@ function PinGlyph() {
   );
 }
 
+function MapPointPin({
+  kind,
+  selected,
+}: {
+  kind: 'post' | 'event' | 'user';
+  selected: boolean;
+}) {
+  const isEvent = kind === 'event';
+  const isUser = kind === 'user';
+  const label = isUser ? 'U' : isEvent ? 'E' : 'P';
+
+  return (
+    <View style={[styles.mapPinWrap, selected && styles.mapPinWrapSelected]}>
+      <View
+        style={[
+          styles.mapPinHead,
+          isEvent && styles.mapPinHeadEvent,
+          isUser && styles.mapPinHeadUser,
+          selected && styles.mapPinHeadSelected,
+        ]}
+      >
+        <Text style={styles.mapPinLabel}>{label}</Text>
+      </View>
+      <View
+        style={[
+          styles.mapPinTip,
+          isEvent && styles.mapPinTipEvent,
+          isUser && styles.mapPinTipUser,
+          selected && styles.mapPinTipSelected,
+        ]}
+      />
+    </View>
+  );
+}
+
 function normalize(value: string) {
   return value.trim().toLowerCase();
 }
@@ -409,6 +444,7 @@ export function ExploreScreen() {
   const [isScrollEnabled, setIsScrollEnabled] = React.useState(true);
   const [summaryLoading, setSummaryLoading] = React.useState(false);
   const [areaSummary, setAreaSummary] = React.useState<string | null>(null);
+  const [focusedPostId, setFocusedPostId] = React.useState<string | null>(null);
   const browserLocation = React.useMemo<NativeBrowserCoordinates | null>(() => null, []);
 
   const textAlign = getTextAlign();
@@ -471,15 +507,47 @@ export function ExploreScreen() {
     setSelectedCardId(null);
     setAppliedMapRegion(null);
 
-    if (!params.focusSearch) {
-      return undefined;
+    const cleanupTimers: Array<ReturnType<typeof setTimeout>> = [];
+
+    if (
+      typeof params.focusPostId === 'string' &&
+      typeof params.focusLatitude === 'number' &&
+      typeof params.focusLongitude === 'number' &&
+      Number.isFinite(params.focusLatitude) &&
+      Number.isFinite(params.focusLongitude)
+    ) {
+      setFocusedPostId(params.focusPostId);
+
+      const nextRegion = makeNativeSelectionRegion(
+        params.focusLatitude,
+        params.focusLongitude,
+        {
+          ...DEFAULT_EXPLORE_REGION,
+          latitudeDelta: 0.08,
+          longitudeDelta: 0.08,
+        }
+      );
+
+      setRegion(nextRegion);
+      latestMapBoundsRef.current = nativeRegionToBounds(nextRegion);
+      cleanupTimers.push(
+        setTimeout(() => {
+          mapRef.current?.animateToRegion(nextRegion, 350);
+        }, 120)
+      );
     }
 
-    const focusTimer = setTimeout(() => {
-      searchInputRef.current?.focus();
-    }, 80);
+    if (params.focusSearch) {
+      cleanupTimers.push(
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+        }, 80)
+      );
+    }
 
-    return () => clearTimeout(focusTimer);
+    return cleanupTimers.length > 0
+      ? () => cleanupTimers.forEach(clearTimeout)
+      : undefined;
   }, [route.params, routeParamKey]);
 
   const handleDataIssue = React.useCallback(
@@ -545,9 +613,54 @@ export function ExploreScreen() {
     );
   }, [handleDataIssue, refreshToken]);
 
+  const focusedRoutePost = React.useMemo<SpotPost | null>(() => {
+    const params = route.params;
+    if (
+      !params?.focusPostId ||
+      typeof params.focusLatitude !== 'number' ||
+      typeof params.focusLongitude !== 'number' ||
+      !Number.isFinite(params.focusLatitude) ||
+      !Number.isFinite(params.focusLongitude)
+    ) {
+      return null;
+    }
+
+    return {
+      id: params.focusPostId,
+      title:
+        typeof params.focusPostTitle === 'string' && params.focusPostTitle.trim()
+          ? params.focusPostTitle
+          : null,
+      text:
+        typeof params.focusPostText === 'string' && params.focusPostText.trim()
+          ? params.focusPostText
+          : language === 'ar'
+            ? 'تحديث جديد'
+            : 'New spot update',
+      lat: params.focusLatitude,
+      lng: params.focusLongitude,
+      locationName:
+        typeof params.focusLocationName === 'string' && params.focusLocationName.trim()
+          ? params.focusLocationName
+          : null,
+      createdAt: new Date().toISOString(),
+    };
+  }, [language, route.params]);
+
+  const postsWithFocusedRoutePost = React.useMemo(() => {
+    if (
+      !focusedRoutePost ||
+      posts.some(post => post.id === focusedRoutePost.id)
+    ) {
+      return posts;
+    }
+
+    return [focusedRoutePost, ...posts];
+  }, [focusedRoutePost, posts]);
+
   const filteredPosts = React.useMemo(
-    () => filterExplorePosts(posts, activeChip.id, whatQuery),
-    [activeChip.id, posts, whatQuery]
+    () => filterExplorePosts(postsWithFocusedRoutePost, activeChip.id, whatQuery),
+    [activeChip.id, postsWithFocusedRoutePost, whatQuery]
   );
 
   const filteredEvents = React.useMemo(
@@ -632,7 +745,7 @@ export function ExploreScreen() {
       .filter(hasValidCoordinate)
       .sort((a, b) => b.rankingScore - a.rankingScore);
 
-    return rankedCards
+    const scopedCards = rankedCards
       .filter(card => {
         if (!activeWhereQuery) {
           return true;
@@ -648,9 +761,28 @@ export function ExploreScreen() {
         }
 
         return isCardInsideRegion(card, appliedMapRegion);
-      })
-      .slice(0, 8);
-  }, [activeWhereQuery, appliedMapRegion, discoveryEventItems, discoverySpotItems, language]);
+      });
+    const limitedCards = scopedCards.slice(0, 8);
+    const focusedCard = focusedPostId
+      ? scopedCards.find(card => card.rawPost?.id === focusedPostId) ?? null
+      : null;
+
+    if (
+      focusedCard &&
+      !limitedCards.some(card => card.id === focusedCard.id)
+    ) {
+      return [focusedCard, ...limitedCards].slice(0, 8);
+    }
+
+    return limitedCards;
+  }, [
+    activeWhereQuery,
+    appliedMapRegion,
+    discoveryEventItems,
+    discoverySpotItems,
+    focusedPostId,
+    language,
+  ]);
 
   const mapCards = React.useMemo(() => cards, [cards]);
   const visiblePosts = React.useMemo(
@@ -665,6 +797,7 @@ export function ExploreScreen() {
     () => cards.find(card => card.id === selectedCardId) ?? null,
     [cards, selectedCardId]
   );
+  const selectedEventCard = selectedCard?.kind === 'event' ? selectedCard : null;
   const selectedResult = React.useMemo(() => {
     if (!selectedCard) {
       return null;
@@ -717,6 +850,17 @@ export function ExploreScreen() {
       setSelectedCardId(null);
     }
   }, [cards, selectedCardId]);
+
+  React.useEffect(() => {
+    if (!focusedPostId) {
+      return;
+    }
+
+    const focusedCardId = `spot-${focusedPostId}`;
+    if (cards.some(card => card.id === focusedCardId)) {
+      setSelectedCardId(focusedCardId);
+    }
+  }, [cards, focusedPostId]);
 
   const handleRetry = React.useCallback(() => {
     setRefreshToken(value => value + 1);
@@ -850,10 +994,12 @@ export function ExploreScreen() {
       .filter(card => card.rawPost || card.rawEvent)
       .slice(0, 20)
       .map(card => ({
+        kind: card.rawEvent ? 'event' as const : 'post' as const,
+        title: card.rawPost?.title ?? card.rawEvent?.title ?? card.title,
         text: card.rawPost?.text ?? card.rawEvent?.description ?? card.description,
         category: card.rawPost?.category ?? card.rawEvent?.category,
       }))
-      .filter(item => item.text.trim().length > 0);
+      .filter(item => item.title?.trim() || item.text.trim().length > 0);
 
     if (summarizable.length === 0) {
       setAreaSummary(
@@ -1122,7 +1268,7 @@ export function ExploreScreen() {
                 <ActivityIndicator color={colors.surface} />
               ) : (
                 <Text style={styles.summaryButtonText}>
-                  {language === 'ar' ? 'لخّص' : 'Summarize'}
+                  {language === 'ar' ? 'لخّص الأماكن القريبة مني' : 'Summarize spots near me'}
                 </Text>
               )}
             </Pressable>
@@ -1306,6 +1452,7 @@ export function ExploreScreen() {
                       longitude: point.longitude,
                     }}
                     anchor={{ x: 0.5, y: 0.5 }}
+                    zIndex={1}
                     tracksViewChanges={false}
                   >
                     <View
@@ -1323,8 +1470,12 @@ export function ExploreScreen() {
                   longitude: browserLocation.longitude,
                 }}
                 title={t('explore.yourLocation')}
-                pinColor={colors.info}
-              />
+                anchor={{ x: 0.5, y: 1 }}
+                centerOffset={{ x: 0, y: -18 }}
+                zIndex={30}
+              >
+                <MapPointPin kind="user" selected />
+              </Marker>
             ) : null}
 
             {visiblePosts.map(post => {
@@ -1335,11 +1486,15 @@ export function ExploreScreen() {
                 <Marker
                   key={`post-${post.id}`}
                   coordinate={{ latitude: post.lat, longitude: post.lng }}
-                  title={post.locationName || post.text}
-                  description={post.text}
-                  pinColor={isSelected ? '#FF4F9A' : '#D946EF'}
+                  title={post.title || post.text}
+                  description={post.locationName || post.text}
+                  anchor={{ x: 0.5, y: 1 }}
+                  centerOffset={{ x: 0, y: -18 }}
+                  zIndex={isSelected ? 25 : 20}
                   onPress={() => handleSelectPost(post)}
-                />
+                >
+                  <MapPointPin kind="post" selected={isSelected} />
+                </Marker>
               );
             })}
 
@@ -1355,9 +1510,13 @@ export function ExploreScreen() {
                     coordinate={{ latitude: event.lat, longitude: event.lng }}
                     title={event.title}
                     description={event.description}
-                    pinColor={isSelected ? '#FF7A4E' : '#F97316'}
+                    anchor={{ x: 0.5, y: 1 }}
+                    centerOffset={{ x: 0, y: -18 }}
+                    zIndex={isSelected ? 35 : 28}
                     onPress={() => handleSelectEvent(event)}
-                  />
+                  >
+                    <MapPointPin kind="event" selected={isSelected} />
+                  </Marker>
                 );
               })}
           </MapView>
@@ -1387,6 +1546,68 @@ export function ExploreScreen() {
               {language === 'ar' ? 'ابحث في هذه المنطقة' : 'Search this area'}
             </Text>
           </Pressable>
+
+          {selectedEventCard ? (
+            <View
+              style={[
+                styles.mapEventInfoCard,
+                isRTL && styles.mapEventInfoCardRtl,
+              ]}
+            >
+              <View style={[styles.mapEventInfoHeader, { flexDirection: getRowDirection() }]}>
+                <View style={styles.mapEventInfoTitleWrap}>
+                  <Text
+                    style={[
+                      styles.mapEventInfoBadge,
+                      { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {language === 'ar' ? 'فعالية' : 'Event'}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.mapEventInfoTitle,
+                      { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                    ]}
+                  >
+                    {selectedEventCard.title}
+                  </Text>
+                </View>
+
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setSelectedCardId(null)}
+                  style={({ pressed }) => [
+                    styles.mapEventInfoClose,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.mapEventInfoCloseText}>x</Text>
+                </Pressable>
+              </View>
+
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.mapEventInfoMeta,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {selectedEventCard.timeLabel} - {selectedEventCard.subtitle}
+              </Text>
+
+              <Text
+                numberOfLines={2}
+                style={[
+                  styles.mapEventInfoDescription,
+                  { textAlign, writingDirection: isRTL ? 'rtl' : 'ltr' },
+                ]}
+              >
+                {selectedEventCard.description}
+              </Text>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </View>
@@ -1581,6 +1802,65 @@ const styles = StyleSheet.create({
     borderRightColor: 'transparent',
     borderTopColor: '#F45A4E',
   },
+  mapPinWrap: {
+    width: 38,
+    height: 46,
+    alignItems: 'center',
+  },
+  mapPinWrapSelected: {
+    transform: [{ scale: 1.12 }],
+  },
+  mapPinHead: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#D946EF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#20150E',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  mapPinHeadEvent: {
+    backgroundColor: '#F97316',
+  },
+  mapPinHeadUser: {
+    backgroundColor: colors.info,
+  },
+  mapPinHeadSelected: {
+    backgroundColor: '#FF4F4A',
+    borderColor: '#FFF7F3',
+  },
+  mapPinLabel: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  mapPinTip: {
+    marginTop: -2,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 12,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#D946EF',
+  },
+  mapPinTipEvent: {
+    borderTopColor: '#F97316',
+  },
+  mapPinTipUser: {
+    borderTopColor: colors.info,
+  },
+  mapPinTipSelected: {
+    borderTopColor: '#FF4F4A',
+  },
 
   chipRow: {
     paddingHorizontal: 16,
@@ -1668,11 +1948,13 @@ const styles = StyleSheet.create({
   summaryButton: {
     minHeight: 42,
     minWidth: 92,
+    maxWidth: 150,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F45A4E',
     paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   summaryButtonDisabled: {
     opacity: 0.72,
@@ -1682,6 +1964,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '800',
     color: '#FFFFFF',
+    textAlign: 'center',
   },
 
   resultWrap: {
@@ -1868,6 +2151,76 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '600',
     color: '#433A35',
+  },
+  mapEventInfoCard: {
+    position: 'absolute',
+    left: 14,
+    right: 72,
+    top: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F0D7CF',
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    shadowColor: '#20150E',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+    zIndex: 6,
+    gap: 6,
+  },
+  mapEventInfoCardRtl: {
+    left: 72,
+    right: 14,
+  },
+  mapEventInfoHeader: {
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  mapEventInfoTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  mapEventInfoBadge: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    color: '#F45A4E',
+    textTransform: 'uppercase',
+  },
+  mapEventInfoTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '900',
+    color: '#211915',
+  },
+  mapEventInfoClose: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F7F1EC',
+  },
+  mapEventInfoCloseText: {
+    fontSize: 16,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#5C534D',
+  },
+  mapEventInfoMeta: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '700',
+    color: '#22A060',
+  },
+  mapEventInfoDescription: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6D625C',
   },
 
   bellIcon: {
